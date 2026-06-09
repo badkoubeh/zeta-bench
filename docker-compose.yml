@@ -1,0 +1,45 @@
+# docker-compose orchestration for zeta-rl.
+#
+# Usage
+# -----
+#   docker compose run --rm train compute=large_gpu
+#   docker compose run --rm eval checkpoint=results/sac_moderate_adversarial_42/
+#   docker compose run --rm shell      # interactive bash
+#
+# The GPU `deploy.resources.reservations` block is a no-op on hosts without
+# the NVIDIA Container Runtime — the container still launches and PyTorch
+# falls back to CPU.
+
+x-train-base: &train-base
+  image: zeta-rl:latest
+  build:
+    context: .
+    dockerfile: Dockerfile
+  volumes:
+    - ./results:/workspace/results
+    - ./wandb:/workspace/wandb
+  environment:
+    - WANDB_API_KEY=${WANDB_API_KEY:-}
+    - WANDB_MODE=${WANDB_MODE:-offline}
+    - HYDRA_FULL_ERROR=1
+  deploy:
+    resources:
+      reservations:
+        devices:
+          - driver: nvidia
+            count: all
+            capabilities: [gpu]
+
+services:
+  train:
+    <<: *train-base
+    command: ["experiments/train.py"]
+
+  eval:
+    <<: *train-base
+    command: ["experiments/evaluate_robustness.py"]
+
+  shell:
+    <<: *train-base
+    entrypoint: ["/bin/bash"]
+    command: []

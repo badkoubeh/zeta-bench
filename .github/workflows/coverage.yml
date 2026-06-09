@@ -1,0 +1,43 @@
+name: coverage
+
+# Fast, Docker-free CI workflow: installs project + dev deps on a vanilla
+# Python 3.12 runner, runs the full test suite with the coverage gate
+# enforced by `[tool.pytest.ini_options]` in pyproject.toml (--cov-fail-under=90).
+#
+# Complements the slower `docker.yml` workflow which builds the production
+# image. This one gives ~30 s feedback on test/coverage regressions.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  coverage:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+
+      - name: Install project + dev dependencies
+        # No [train] extra — physics tests don't need torch / stable-baselines3.
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: Run tests with branch coverage + 90% gate
+        run: pytest tests/
+
+      - name: Upload coverage HTML report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-html
+          path: htmlcov/
+          retention-days: 7

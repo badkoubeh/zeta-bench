@@ -1,0 +1,12 @@
+# @package _global_
+# Compute profile: multi-GPU training (DataParallel / DistributedDataParallel).
+# Launcher (torchrun / accelerate) sets WORLD_SIZE and RANK at runtime.
+
+compute:
+  profile: multi_gpu
+  device: cuda
+  n_envs: 64
+  batch_size: 2048
+  buffer_size: 4_000_000
+  n_steps: 8192
+  data_parallel: true

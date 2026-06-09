@@ -1,0 +1,41 @@
+name: diagram-sync
+
+# Surface a soft warning on PRs when architecture-relevant files change
+# without the closed-loop diagram in README.md being touched. The pre-commit
+# hook is the hard-enforcement layer locally; this workflow is the reminder
+# layer in PR review.
+
+on:
+  pull_request:
+    paths:
+      - 'dynamics/**'
+      - 'envs/rocket_landing_env.py'
+      - 'envs/__init__.py'
+      - 'controllers/**'
+      - 'adversary/**'
+      - 'configs/env.yaml'
+      - 'configs/reward.yaml'
+      - 'configs/adversary.yaml'
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Compare README touch against architecture diff
+        run: |
+          base="${{ github.base_ref }}"
+          git fetch origin "$base" --depth=1 || true
+          changed=$(git diff --name-only "origin/${base}...HEAD")
+          echo "Changed files:"
+          echo "$changed"
+
+          arch_re='^(dynamics/|envs/rocket_landing_env\.py$|envs/__init__\.py$|controllers/|adversary/|configs/(env|reward|adversary)\.yaml$)'
+          if echo "$changed" | grep -qE "$arch_re" && ! echo "$changed" | grep -qx 'README.md'; then
+            echo "::warning::Architecture-relevant files changed but README.md (with the closed-loop diagram) was not updated. If the change does not affect signal flow, ignore this warning."
+          else
+            echo "README sync OK or no architecture-relevant changes."
+          fi

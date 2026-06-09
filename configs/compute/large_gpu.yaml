@@ -1,0 +1,12 @@
+# @package _global_
+# Compute profile: single GPU with ~16–40 GB VRAM.
+# Examples: RTX 3090/4090, A100 (40 GB), L40, H100 (single).
+
+compute:
+  profile: large_gpu
+  device: cuda
+  n_envs: 32
+  batch_size: 1024
+  buffer_size: 2_000_000
+  n_steps: 4096
+  data_parallel: false

@@ -1,0 +1,30 @@
+# Top-level training composition. Override any field at the CLI:
+#   python experiments/train.py seed=42 agent=ppo dynamics.fidelity=high
+
+defaults:
+  - env
+  - reward
+  - adversary
+  - eval
+  - agent: sac
+  - compute: cpu
+  - pid_controller
+  - _self_
+
+seed: 42
+train_mode: nominal   # nominal | adversarial
+total_steps: 2_000_000
+run_name: ${agent.name}_${env.dynamics.fidelity}_${train_mode}_${seed}
+
+wandb:
+  project: zeta-rl
+  mode: ${oc.env:WANDB_MODE,offline}  # offline by default; opt-in to online via env var
+  tags: []
+
+checkpoint:
+  every_n_steps: 50_000
+  keep_last: 3
+
+resume_from: null   # path to a .zip checkpoint; resumes training from that step count
+
+results_dir: results/${run_name}

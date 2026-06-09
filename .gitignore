@@ -1,0 +1,54 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg
+*.egg-info/
+.eggs/
+build/
+dist/
+pip-wheel-metadata/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Project runtime artefacts
+results/*
+!results/.gitkeep
+wandb/
+outputs/
+.hydra/
+multirun/
+*.mp4
+*.gif
+*.ckpt
+*.pt
+*.pth
+
+# Testing & linting caches
+.coverage
+.coverage.*
+htmlcov/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Editors / OS
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# Local AI/editor tool state
+.claude/
+
+# Working docs / personal notes (not part of the repo)
+docs/
+
+# Jupyter
+.ipynb_checkpoints/

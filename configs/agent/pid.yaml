@@ -1,0 +1,9 @@
+# @package _global_
+# Classical PID baseline — no learnable parameters.
+# Gains live in configs/pid_controller.yaml. This file only declares the
+# agent identity so run_name interpolation and (future) factory dispatch
+# work.
+
+agent:
+  name: pid
+  algorithm: PID

@@ -1,0 +1,37 @@
+name: docker
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: false
+          load: true
+          tags: zeta-rl:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Smoke-test imports inside image
+        run: |
+          docker run --rm zeta-rl:ci \
+            -c "import dynamics, envs, controllers, adversary, experiments, utils; print('imports OK')"
+
+      - name: Run pytest inside image
+        run: |
+          docker run --rm \
+            --entrypoint python zeta-rl:ci \
+            -m pytest tests/ -v

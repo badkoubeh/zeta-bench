@@ -1,0 +1,28 @@
+# @package _global_
+#
+# PID controller gains. Placeholder values — user tunes via step-response
+# / Ziegler-Nichols on each loop independently, then on coupled dynamics.
+# Document tuning method in docs/research_notes.md when done.
+#
+# See controllers/pid_baseline.py for the cascade structure. Currently
+# only the altitude/descent-velocity loop is active; lateral + attitude
+# loops are placeholders pending user tuning.
+
+pid_controller:
+  altitude:
+    Kp: 0.05               # τ_cl = 1/(K_plant·Kp) ≈ 0.7 s
+    Ki: 0.015              # τ_i = Kp/Ki ≈ 3 s — supplies the ~0.32 hover-throttle bias
+    Kd: 0.007              # τ_d = Kd/Kp ≈ 0.15 s — damps without amplifying relay chatter
+    target_descent_mps: 2.0  # desired terminal descent rate (NED +z = descending)
+
+  lateral:                 # placeholder block, not yet wired into predict()
+    Kp: 0.01
+    Ki: 0.0
+    Kd: 0.05
+
+  attitude:                # placeholder block, not yet wired into predict()
+    Kp: 1.0
+    Ki: 0.01
+    Kd: 0.5
+
+  integral_max: 30.0       # Ki·max ≈ 0.45 — sufficient to cover hover bias (u_h ≈ 0.32)

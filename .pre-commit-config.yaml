@@ -1,0 +1,17 @@
+# Local pre-commit hooks for zeta-rl.
+#
+# Install once after cloning:
+#   make install-hooks       # or: pre-commit install
+#
+# Run on the full tree (e.g. in CI):
+#   pre-commit run --all-files
+
+repos:
+  - repo: local
+    hooks:
+      - id: diagram-sync
+        name: closed-loop diagram in README must accompany architecture changes
+        entry: scripts/check_diagram_sync.py
+        language: system
+        pass_filenames: false
+        stages: [pre-commit]

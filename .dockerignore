@@ -1,0 +1,46 @@
+# Source-control + local virtualenv (never copy into image)
+.git
+.gitignore
+.github
+.venv
+.venv-*
+
+# Build artefacts produced at runtime
+results
+!results/.gitkeep
+wandb
+outputs
+.hydra
+multirun
+*.mp4
+*.gif
+*.ckpt
+*.pt
+*.pth
+
+# Caches
+.pytest_cache
+.mypy_cache
+.ruff_cache
+**/__pycache__
+*.pyc
+*.pyo
+*.egg-info
+build
+dist
+.coverage*
+
+# Editor + OS noise
+.vscode
+.idea
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+
+# Local AI/editor tool state
+.claude
+
+# Large content that doesn't belong in the runtime image
+notebooks
+docs/PLAN.md

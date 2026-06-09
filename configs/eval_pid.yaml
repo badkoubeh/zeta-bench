@@ -1,0 +1,40 @@
+# Focused composition for end-to-end PID evaluation.
+# Entry point: experiments/evaluate_pid.py
+#
+# CLI examples
+# ------------
+#   python experiments/evaluate_pid.py
+#   python experiments/evaluate_pid.py seed=7 eval_pid.n_episodes=20
+#   python experiments/evaluate_pid.py eval_pid.curriculum_progress=0.0
+#
+# Intentionally narrow: no adversary, no eval-grid (robustness), no compute
+# profile. PID is pure NumPy; this is the tight tune-and-rerun loop.
+
+defaults:
+  - env
+  - reward
+  - agent: pid
+  - pid_controller
+  - _self_
+
+seed: 42
+run_name: ${agent.name}_${env.dynamics.fidelity}_eval_${seed}
+results_dir: results/${run_name}
+
+eval_pid:
+  n_episodes: 20
+  # Pin curriculum progress for evaluation. The env's internal `_global_step`
+  # is zero at eval-time, which would otherwise leave the curriculum at its
+  # easiest envelope (low drop, no lateral offset, slow descent). Override
+  # to 1.0 to evaluate on the full envelope; lower values for easier tests.
+  curriculum_progress: 1.0
+  # When true, write time-series PNG + 2D side-view MP4 for the best and
+  # worst episodes of the run (by total return). Default off so the
+  # tune-and-rerun loop stays fast — MP4 generation is the slow step.
+  render: false
+  render_fps: 50
+
+# Wire the override into the curriculum module.
+env:
+  curriculum:
+    progress_override: ${eval_pid.curriculum_progress}

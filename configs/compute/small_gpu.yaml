@@ -1,0 +1,12 @@
+# @package _global_
+# Compute profile: single GPU with ~6–10 GB VRAM.
+# Examples: GTX 1080, RTX 2060/3060, T4, A10 (small instance).
+
+compute:
+  profile: small_gpu
+  device: cuda
+  n_envs: 8
+  batch_size: 256
+  buffer_size: 500_000
+  n_steps: 2048
+  data_parallel: false

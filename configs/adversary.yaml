@@ -1,0 +1,18 @@
+# Learned disturbance adversary.
+
+adversary:
+  action_space:
+    # 5-dim disturbance action.
+    wind_force_max_N: 50_000.0       # TODO: tune. Per-axis wind cap.
+    noise_magnitude_max: 0.1         # TODO: tune. σ scale for obs Gaussian noise.
+    mass_offset_max_fraction: 0.20   # ±20% payload mass perturbation.
+
+  training:
+    update_ratio_N: 10               # agent gradient steps per adversary step
+    anneal_steps: 1_000_000          # adversary-weight curriculum length
+    initial_weight: 0.0
+    final_weight: 1.0
+    algorithm: sac                   # SB3 SAC for the adversary
+
+  obs:
+    dim: 20   # agent 17-dim obs + agent last 3-dim action

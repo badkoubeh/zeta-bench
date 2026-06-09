@@ -1,0 +1,16 @@
+# Reward weights — hybrid dense shaping + sparse terminal.
+# Placeholders only: targeted so |sum(dense)| ≈ |terminal| over a 1500-step episode.
+
+reward:
+  dense:
+    distance_weight: 0.005       # TODO: tune. Penalty per metre to pad.
+    velocity_weight: 0.01        # TODO: tune. Penalty per m/s of speed magnitude.
+    attitude_weight: 0.05        # TODO: tune. Penalty per radian tilt.
+    angular_rate_weight: 0.01    # TODO: tune. Penalty per rad/s.
+    fuel_weight: 0.001           # TODO: tune. Penalty per kg fuel burned.
+    smoothness_weight: 0.005     # TODO: tune. Penalty for Δaction² jerk.
+
+  sparse:
+    success_bonus: 300.0
+    crash_penalty: -100.0
+    out_of_bounds_penalty: -50.0
