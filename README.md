@@ -1,25 +1,28 @@
-# Zeta RL
+# ZetaBench
 
-![CI](https://github.com/badkoubeh/zeta-rl/actions/workflows/ci.yml/badge.svg)
+![CI](https://github.com/badkoubeh/zeta-bench/actions/workflows/ci.yml/badge.svg)
 ![Python](https://img.shields.io/badge/python-3.10%2B-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
 
-> **Physics-grounded RL simulation environments for robust control under
-> uncertainty** — dynamics derived from first principles, agents evaluated
-> across disturbances and model uncertainty.
+> **The reproducible benchmark for robust control under the long tail** —
+> stress-test any controller across a physics-grounded graduated disturbance
+> matrix and get certifiable, comparable evidence of where and how it fails.
 
-Zeta RL is a framework for building physics-first reinforcement-learning
-environments and training robust agents in them. It pairs first-principles
-dynamics with a standard Gymnasium interface, swappable controllers (classical
-and learned), adversarial robustness training, and a reproducible evaluation
-harness.
+**The question ZetaBench exists to answer:**
+*"Is this controller robust enough to deploy, and can you prove it reproducibly?"*
+
+ZetaBench is a physics-first robustness characterization environment for control
+policies. Any controller — deep RL, MPC, LQR, PID, or world-model-based — faces
+an identical graduated disturbance matrix (fixed seeds, identical conditions) and
+produces a reproducible failure-mode map. Cross-paradigm comparison (RL vs. PID
+vs. MPC on identical conditions) is the mechanism that makes the robustness
+verdict credible, not the headline.
 
 The **reference environment shipping today is 6-DOF rocket landing**, which
 exercises the entire stack end to end: first-principles physics → Gymnasium env
-→ PID / SAC / PPO controllers → learned-adversary robustness training →
-disturbance-sweep evaluation. The same scaffolding is intended to host other
-control problems (autonomous driving, LLM post-training, …) — see
-[Environments](#environments).
+→ PID / SAC / PPO controllers → disturbance-sweep evaluation. The same
+scaffolding is intended to host other control problems (eVTOL/UAV precision
+landing, bipedal locomotion) — see [Environments](#environments).
 
 ---
 
@@ -28,8 +31,8 @@ control problems (autonomous driving, LLM post-training, …) — see
 | Environment | Status | Description |
 |---|---|---|
 | **Rocket landing** (`RocketLanding-v0`) | ✅ Available | 6-DOF rigid-body powered descent; the reference environment the rest of this README documents. |
-| Autonomous driving (bicycle / vehicle model) | 🧭 Roadmap | A second control domain to validate the shared abstractions. |
-| LLM post-training | 🧭 Roadmap | RL post-training loop expressed against the same env/agent surface. |
+| eVTOL / UAV precision landing | 🧭 Roadmap | A second flight-domain environment to validate shared abstractions and cross-domain robustness comparison. |
+| Bipedal locomotion under perturbation | 🧭 Roadmap | Legged locomotion reference for disturbance characterization in contact-rich dynamics. |
 | Your environment | 🧭 Roadmap | See [`CONTRIBUTING.md`](CONTRIBUTING.md) → *Adding an environment*. |
 
 **Extension points** a new environment builds against: the
@@ -43,11 +46,11 @@ rocket environment is the worked example to follow.
 ## Demo
 
 <!-- Fill in after Phase 3 -->
-| Naive SAC | Adversarially-Trained SAC |
+| PID Baseline | SAC (adversarially trained) |
 |---|---|
-| ![naive](results/naive_agent.gif) | ![robust](results/robust_agent.gif) |
+| ![pid](results/pid_baseline.gif) | ![robust](results/robust_agent.gif) |
 
-[📊 Full wandb report →](https://wandb.ai/badkoubeh/zeta-rl)
+[📊 Full wandb report →](https://wandb.ai/badkoubeh/zeta-bench)
 
 ---
 
@@ -81,7 +84,7 @@ rocket environment is the worked example to follow.
 ## Architecture
 
 ```
-zeta-rl/
+zeta-bench/
 ├── configs/                  # All hyperparams — Hydra-managed YAML
 ├── dynamics/                 # 6-DOF rigid body dynamics (first principles)
 ├── envs/                     # Gymnasium environment wrapper
@@ -186,20 +189,33 @@ covering:
 
 ---
 
-## Robustness Strategy
+## Robustness Evaluation
 
-The agent trains against a **learned adversary** that injects worst-case
-disturbances during training — a reinforcement-learning formulation of H∞ robust
-control. The adversary learns to maximise landing failure; the agent learns
-to land despite it.
+### Primary mode — graduated disturbance matrix
 
-**Adversary action space:**
-- Wind force vector `[Fx, Fy, Fz]`
-- Sensor noise magnitude
-- Payload mass offset
+Every controller faces an identical, fixed-seed disturbance matrix. Conditions
+are held constant across controllers so results are directly comparable and
+reproducible. This is the primary evaluation path and produces the signature
+robustness heatmap (disturbance type × magnitude × success rate).
 
-This produces an agent that is provably harder to destabilise than one trained
-with fixed domain randomisation.
+| Disturbance | Levels tested |
+|---|---|
+| Wind | 0, 2, 5, 10 m/s × N/E/S/W/diagonal |
+| Mass uncertainty | payload offset −20 % to +20 % |
+| Sensor noise | σ 0–0.1, spike probability 0–5 % |
+| Combined | all at maximum simultaneously |
+
+### Optional — adversarial / worst-case search
+
+A learned adversary (SB3 SAC) searches for the disturbance within physical
+bounds that most reliably breaks a given controller. This is a stress-test for a
+*single* controller, not a cross-controller comparison tool — because an adaptive
+adversary fights each controller differently, its findings are not comparable
+across controllers. Adversarial results are always reported separately from the
+graduated matrix.
+
+**Adversary action space:** wind force vector `[Fx, Fy, Fz]`, sensor noise
+magnitude, payload mass offset.
 
 ---
 
@@ -217,7 +233,7 @@ This project is configured via `pyproject.toml` (with `[dev]` / `[train]` extras
 The recommended setup uses [uv](https://docs.astral.sh/uv/):
 
 ```bash
-cd zeta-rl
+cd zeta-bench
 uv venv --python 3.12            # create .venv with Python 3.12
 source .venv/bin/activate
 uv pip install -e ".[dev]"       # runtime + dev deps (the PID path needs no torch)
@@ -234,7 +250,7 @@ uv pip install -e ".[dev]"       # runtime + dev deps (the PID path needs no tor
 <summary>No <code>uv</code>? Use the stdlib venv + pip</summary>
 
 ```bash
-cd zeta-rl
+cd zeta-bench
 python3.12 -m venv .venv
 source .venv/bin/activate
 pip install -e ".[dev]"
@@ -384,6 +400,21 @@ This section documents honest constraints of the current implementation.
   are continuous and correlated
 - No formal stability guarantees — empirical robustness only
 
+**Prior art.** Existing tools are not absent — they are fragmented and
+unmaintained as a standard. ZetaBench's gap is the absence of a recognized,
+physics-first robustness standard for learned controllers. Related work worth
+knowing: [safe-control-gym](https://github.com/utiasDSL/safe-control-gym),
+[RRLS](https://github.com/SuReLI/RRLS), [SafetyGym](https://github.com/openai/safety-gym),
+[RotorPy](https://github.com/spencerfolk/rotorpy); enterprise CAE/HIL platforms
+(Ansys, OPAL-RT, dSPACE, Simulink) are trusted but closed and not
+learned-policy-native.
+
+**Rocket landing as demo.** The rocket-landing environment is a rigorous,
+physics-grounded reference for the characterization framework. Real operators
+(e.g., SpaceX) land via convex optimization (SOCP); RL trails deterministic
+controllers on terminal accuracy. The demo is chosen for its well-defined physics
+and clear success criterion, not as a claim about deployed practice.
+
 ---
 
 ## Upgrade Paths
@@ -392,18 +423,21 @@ This section documents honest constraints of the current implementation.
 |---|---|---|
 | High fidelity dynamics | Medium | New `HighFidelityDynamics` subclass + obs extension |
 | Transformer policy | Medium | Swap MLP backbone in SAC/PPO |
-| Bicycle model (Waymo) | Medium | New dynamics class + new env wrapper |
+| eVTOL / UAV environment | Medium | New dynamics class + new env wrapper |
 | CARLA simulator | High | Replace Gymnasium env; rest unchanged |
 
 ---
 
 ## Background
 
-Built as a portfolio project demonstrating:
-- Physics-first thinking (equations of motion from scratch)
-- Robust control under uncertainty (adversarial RL ≈ learned H∞)
-- Production engineering standards (config, CI, tracking, reproducibility)
-- Empirical benchmarking (PID vs PPO vs SAC across disturbance conditions)
+ZetaBench addresses the fragmentation and reproducibility gap in robustness
+evaluation for learned controllers. Academic gyms exist but lack maintained
+standards; enterprise CAE tools are trusted but closed and not learned-policy-native.
+The gap is not the absence of tools — it is the absence of a recognized,
+physics-first robustness standard that treats classical and learned controllers
+as first-class peers. ZetaBench is built on control-systems foundations
+(PDEs, Lyapunov, H∞, robust RL under disturbance/uncertainty) and production
+ML engineering (reproducibility, CI/CD, seeded evaluation).
 
 ---
 
