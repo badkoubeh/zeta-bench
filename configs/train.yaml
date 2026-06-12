@@ -17,7 +17,7 @@ total_steps: 2_000_000
 run_name: ${agent.name}_${env.dynamics.fidelity}_${train_mode}_${seed}
 
 wandb:
-  project: zeta-rl
+  project: zeta-bench
   mode: ${oc.env:WANDB_MODE,offline}  # offline by default; opt-in to online via env var
   tags: []
 

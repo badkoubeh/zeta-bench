@@ -1,4 +1,4 @@
-# Local pre-commit hooks for zeta-rl.
+# Local pre-commit hooks for zeta-bench.
 #
 # Install once after cloning:
 #   make install-hooks       # or: pre-commit install

@@ -1,4 +1,4 @@
-# docker-compose orchestration for zeta-rl.
+# docker-compose orchestration for zeta-bench.
 #
 # Usage
 # -----
@@ -11,7 +11,7 @@
 # falls back to CPU.
 
 x-train-base: &train-base
-  image: zeta-rl:latest
+  image: zeta-bench:latest
   build:
     context: .
     dockerfile: Dockerfile
