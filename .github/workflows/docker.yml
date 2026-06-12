@@ -21,17 +21,17 @@ jobs:
           context: .
           push: false
           load: true
-          tags: zeta-rl:ci
+          tags: zeta-bench:ci
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
       - name: Smoke-test imports inside image
         run: |
-          docker run --rm zeta-rl:ci \
+          docker run --rm zeta-bench:ci \
             -c "import dynamics, envs, controllers, adversary, experiments, utils; print('imports OK')"
 
       - name: Run pytest inside image
         run: |
           docker run --rm \
-            --entrypoint python zeta-rl:ci \
+            --entrypoint python zeta-bench:ci \
             -m pytest tests/ -v

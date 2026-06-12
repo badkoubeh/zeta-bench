@@ -3,12 +3,12 @@ requires = ["setuptools>=68", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "zeta-rl"
+name = "zeta-bench"
 version = "0.1.0"
-description = "Physics-grounded RL simulation environments for robust control under uncertainty."
+description = "Physics-grounded robustness characterization for control systems."
 requires-python = ">=3.12"
 license = { text = "MIT" }
-authors = [{ name = "Zeta RL contributors" }]
+authors = [{ name = "ZetaBench contributors" }]
 readme = "README.md"
 dependencies = [
     "numpy>=2.0",
