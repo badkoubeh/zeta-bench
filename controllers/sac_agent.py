@@ -76,6 +76,7 @@ class SACAgent:
         n_envs = int(compute.n_envs) if compute else 1
         batch_size = int(compute.batch_size) if compute else int(a.batch_size)
         buffer_size = int(compute.buffer_size) if compute else int(a.buffer_size)
+        gradient_steps = int(compute.gradient_steps) if (compute and "gradient_steps" in compute) else int(a.gradient_steps)
         seed = int(cfg.seed)
 
         if n_envs > 1:
@@ -101,7 +102,7 @@ class SACAgent:
                 gamma=float(a.gamma),
                 tau=float(a.tau),
                 train_freq=int(a.train_freq),
-                gradient_steps=int(a.gradient_steps),
+                gradient_steps=gradient_steps,
                 learning_starts=int(a.learning_starts),
                 ent_coef=a.ent_coef,
                 target_entropy=a.target_entropy,
@@ -128,7 +129,7 @@ class SACAgent:
         reset_num_timesteps = not bool(resume_from)
 
         logger.info(
-            "SAC.learn: total_steps=%d steps_done=%d remaining=%d n_envs=%d device=%s batch=%d buffer=%d",
+            "SAC.learn: total_steps=%d steps_done=%d remaining=%d n_envs=%d device=%s batch=%d buffer=%d grad_steps=%d",
             int(total_steps),
             steps_done,
             remaining,
@@ -136,6 +137,7 @@ class SACAgent:
             device,
             batch_size,
             buffer_size,
+            gradient_steps,
         )
         if remaining == 0:
             logger.info("checkpoint already at %d steps; nothing to train", steps_done)

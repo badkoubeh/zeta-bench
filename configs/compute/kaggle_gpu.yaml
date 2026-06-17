@@ -1,0 +1,13 @@
+# @package _global_
+# Compute profile tuned for Kaggle T4 (sm_75) and P100 (sm_60), both 16 GB VRAM.
+# Increases gradient_steps and batch_size to keep the GPU busy relative to CPU env-stepping.
+# SAC gradient_steps=-1 means one gradient step per timestep collected (= n_envs per rollout).
+
+compute:
+  profile: kaggle_gpu
+  device: cuda
+  n_envs: 16
+  batch_size: 1024
+  buffer_size: 1_000_000
+  gradient_steps: -1   # SB3 SAC: -1 = n_envs gradient steps per collection step
+  data_parallel: false
