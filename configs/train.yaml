@@ -25,6 +25,10 @@ checkpoint:
   every_n_steps: 50_000
   keep_last: 3
 
+eval_callback:
+  every_n_steps: 50_000   # env steps between eval-based model-selection checks
+  n_eval_episodes: 20     # episodes per eval (curriculum pinned to full difficulty)
+
 resume_from: null   # path to a .zip checkpoint; resumes training from that step count
 
 results_dir: results/${run_name}

@@ -29,7 +29,7 @@ from controllers.ppo_agent import PPOAgent
 from controllers.sac_agent import SACAgent
 from envs.rocket_landing_env import RocketLandingEnv
 from utils.logging_config import get_logger
-from utils.wandb_setup import register_resolvers
+from utils.wandb_setup import ensure_project, register_resolvers
 
 register_resolvers()
 
@@ -63,6 +63,10 @@ def main(cfg: DictConfig) -> None:
 
     if agent_name not in _AGENTS:
         raise ValueError(f"Unknown agent '{agent_name}'; expected one of {sorted(_AGENTS)}")
+
+    # Preflight: fail fast on a missing/invalid key and ensure the project exists
+    # (no-op for offline runs). Runs before init so errors surface with context.
+    ensure_project(cfg.wandb.project)
 
     wandb.init(
         project=cfg.wandb.project,

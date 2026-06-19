@@ -132,14 +132,19 @@ class SACAgent:
                 cfg, OmegaConf.create({"env": {"curriculum": {"progress_override": 1.0}}})
             )
             eval_env = make_vec_env(lambda: RocketLandingEnv(eval_cfg), n_envs=1, seed=seed + 999)
-            eval_freq = max(50_000 // max(n_envs, 1), 1)
+            evalcb = cfg.get("eval_callback", None)
+            eval_every = int(evalcb.every_n_steps) if evalcb is not None else 50_000
+            n_eval_eps = int(evalcb.n_eval_episodes) if evalcb is not None else 20
+            # eval_freq is counted in vec-env steps, so scale by n_envs to keep the
+            # cadence fixed in env steps regardless of the compute profile's worker count.
+            eval_freq = max(eval_every // max(n_envs, 1), 1)
             callbacks.append(
                 EvalCallback(
                     eval_env,
                     best_model_save_path=str(cfg.results_dir),
                     log_path=str(cfg.results_dir),
                     eval_freq=eval_freq,
-                    n_eval_episodes=20,
+                    n_eval_episodes=n_eval_eps,
                     deterministic=True,
                     verbose=1,
                 )
