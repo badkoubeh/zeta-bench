@@ -1,0 +1,61 @@
+# Hydra config for end-to-end RL agent evaluation.
+# Entry point: experiments/evaluate_rl.py
+#
+# CLI examples
+# ------------
+#   # from wandb Model Registry (canonical)
+#   python experiments/evaluate_rl.py agent=sac \
+#     eval_rl.model_artifact="entity/project/zetabench-sac:best"
+#
+#   # local .zip path (offline / no wandb)
+#   python experiments/evaluate_rl.py agent=sac \
+#     eval_rl.model_path=results/sac_moderate_nominal_42/best_model.zip
+#
+#   # switch agent to PPO
+#   python experiments/evaluate_rl.py agent=ppo \
+#     eval_rl.model_artifact="entity/project/zetabench-ppo:best"
+#
+#   # test under wind disturbance
+#   python experiments/evaluate_rl.py agent=sac \
+#     eval_rl.model_artifact="entity/project/zetabench-sac:best" \
+#     eval_rl.disturbance.wind_mps=5.0
+
+defaults:
+  - env
+  - reward
+  - agent: sac      # override with agent=ppo at CLI
+  - _self_
+
+seed: 42
+run_name: ${agent.name}_${env.dynamics.fidelity}_eval_rl_${seed}
+results_dir: results/${run_name}
+
+eval_rl:
+  # Exactly one of model_artifact or model_path must be set.
+  # model_artifact takes precedence if both are provided.
+  model_artifact: null   # wandb artifact ref: "entity/project/zetabench-sac:best"
+  model_path: null       # local .zip path (fallback when model_artifact is null)
+
+  n_episodes: 100
+
+  # Pin curriculum progress for evaluation. 1.0 = full difficulty envelope
+  # (matches the EvalCallback env used during training for consistent comparison).
+  curriculum_progress: 1.0
+
+  # When true, write time-series PNG + 2D side-view MP4 for best and worst episodes.
+  render: false
+  render_fps: 50
+
+  # Optional disturbance overrides for testing against different env configurations.
+  # These are placeholders; wired into the env in Phase 3 (robustness/disturbances.py).
+  # Set here for forward-compatibility so CLI overrides already parse correctly.
+  disturbance:
+    wind_mps: 0.0          # wind force magnitude (m/s equivalent)
+    mass_offset_frac: 0.0  # payload mass offset as fraction of nominal (e.g. 0.1 = +10%)
+    sensor_noise_sigma: 0.0
+    actuator_delay_steps: 0
+
+# Wire the curriculum override into the env module.
+env:
+  curriculum:
+    progress_override: ${eval_rl.curriculum_progress}

@@ -20,7 +20,10 @@ x-train-base: &train-base
     - ./wandb:/workspace/wandb
   environment:
     - WANDB_API_KEY=${WANDB_API_KEY:-}
-    - WANDB_MODE=${WANDB_MODE:-offline}
+    # Unset by default so the config resolves the mode from WANDB_API_KEY
+    # (online when a key is present, offline otherwise). Set WANDB_MODE on the
+    # host to force a specific mode.
+    - WANDB_MODE=${WANDB_MODE:-}
     - HYDRA_FULL_ERROR=1
   deploy:
     resources:

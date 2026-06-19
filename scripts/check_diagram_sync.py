@@ -2,7 +2,7 @@
 """Pre-commit guard: block architecture changes that don't update the diagram.
 
 The closed-loop control diagram in ``README.md`` is the authoritative visual
-specification of the zeta-rl system. If any of the trigger paths below are
+specification of the zeta-bench system. If any of the trigger paths below are
 staged for commit without ``README.md`` also being staged, this hook fails
 the commit.
 

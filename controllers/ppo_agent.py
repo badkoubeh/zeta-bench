@@ -52,8 +52,9 @@ class PPOAgent:
         if self._cfg is None:
             raise RuntimeError("PPOAgent.learn requires a config (was the agent loaded?)")
 
+        from omegaconf import OmegaConf
         from stable_baselines3 import PPO
-        from stable_baselines3.common.callbacks import CallbackList, CheckpointCallback
+        from stable_baselines3.common.callbacks import CallbackList, CheckpointCallback, EvalCallback
         from stable_baselines3.common.env_util import make_vec_env
 
         from controllers._sb3_logging import WandbLoggingCallback
@@ -110,6 +111,26 @@ class PPOAgent:
                     save_freq=save_freq,
                     save_path=str(cfg.results_dir),
                     name_prefix=str(cfg.run_name),
+                )
+            )
+
+        if "results_dir" in cfg:
+            # Eval env: separate env with curriculum pinned at full difficulty so
+            # best_model.zip is selected on the hardest conditions, not training distribution.
+            eval_cfg = OmegaConf.merge(
+                cfg, OmegaConf.create({"env": {"curriculum": {"progress_override": 1.0}}})
+            )
+            eval_env = make_vec_env(lambda: RocketLandingEnv(eval_cfg), n_envs=1, seed=seed + 999)
+            eval_freq = max(50_000 // max(n_envs, 1), 1)
+            callbacks.append(
+                EvalCallback(
+                    eval_env,
+                    best_model_save_path=str(cfg.results_dir),
+                    log_path=str(cfg.results_dir),
+                    eval_freq=eval_freq,
+                    n_eval_episodes=20,
+                    deterministic=True,
+                    verbose=1,
                 )
             )
 

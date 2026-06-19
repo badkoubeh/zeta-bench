@@ -224,7 +224,7 @@ All runs logged to wandb. Required logged values:
 - Episode metrics: landing success, touchdown velocity, fuel used
 - Evaluation metrics: robustness matrix results
 
-wandb project name: `zetabench` (legacy runs used `zeta-rl`; new runs use `zetabench`)
+wandb project name: `zetabench` (legacy runs used `zeta-bench`; new runs use `zetabench`)
 Run naming convention: `{agent}_{fidelity}_{adversarial|nominal}_{seed}`
 Example: `sac_moderate_nominal_42`
 

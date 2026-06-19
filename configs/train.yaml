@@ -18,7 +18,7 @@ run_name: ${agent.name}_${env.dynamics.fidelity}_${train_mode}_${seed}
 
 wandb:
   project: zeta-bench
-  mode: ${oc.env:WANDB_MODE,offline}  # offline by default; opt-in to online via env var
+  mode: ${zeta.wandb_mode:}  # WANDB_MODE if set, else online when WANDB_API_KEY exists, else offline
   tags: []
 
 checkpoint:

@@ -348,6 +348,30 @@ Config files:
 
 All runs are tracked in [Weights & Biases](https://wandb.ai).
 
+### WandB setup
+
+Create a `.env` file in the repo root with your personal API key:
+
+```bash
+cp .env.example .env          # start from the template
+# then open .env and paste your key from https://wandb.ai/authorize
+```
+
+`.env` is git-ignored — it never leaves your machine. The training and
+evaluation scripts load it automatically via `python-dotenv`.
+
+**Online vs. offline is automatic.** The WandB mode is resolved from the
+environment:
+
+- `WANDB_MODE` set explicitly → that value wins (e.g. `WANDB_MODE=offline` to
+  force-disable logging even when a key is present).
+- otherwise, **`online` when a `WANDB_API_KEY` is available, `offline` when it is
+  not** — so simply providing a key turns tracking on, and runs without one never
+  block on a login prompt.
+
+> **Team / CI use:** set `WANDB_API_KEY` as an environment variable or a
+> GitHub Actions Secret instead of a `.env` file. The same key name is used.
+
 ```bash
 # Logged automatically per run:
 # - All reward components (separately, not just total)

@@ -1,9 +1,9 @@
-# Convenience targets for zeta-rl.
+# Convenience targets for zeta-bench.
 # Run `make help` to list available targets.
 
 .PHONY: help image train eval eval-pid viz shell test lint lock clean
 
-IMAGE   ?= zeta-rl:latest
+IMAGE   ?= zeta-bench:latest
 COMPUTE ?= cpu        # cpu | small_gpu | large_gpu | multi_gpu
 AGENT   ?= sac        # sac | ppo
 SEED    ?= 42

@@ -20,12 +20,18 @@ from __future__ import annotations
 
 import hydra
 import wandb
+from dotenv import load_dotenv
+
+load_dotenv()
 from omegaconf import DictConfig, OmegaConf
 
 from controllers.ppo_agent import PPOAgent
 from controllers.sac_agent import SACAgent
 from envs.rocket_landing_env import RocketLandingEnv
 from utils.logging_config import get_logger
+from utils.wandb_setup import register_resolvers
+
+register_resolvers()
 
 logger = get_logger(__name__)
 
@@ -70,8 +76,39 @@ def main(cfg: DictConfig) -> None:
         agent = _AGENTS[agent_name](cfg)
         agent.learn(env, int(cfg.total_steps))
         logger.info("training complete; artefacts in %s", results_dir)
+        _log_model_artifact(cfg, agent_name, results_dir)
     finally:
         wandb.finish()
+
+
+def _log_model_artifact(cfg: DictConfig, agent_name: str, results_dir: "Path") -> None:
+    """Upload best_model.zip (or model.zip fallback) to the wandb Model Registry."""
+    if wandb.run is None:
+        return
+
+    from pathlib import Path as _Path
+
+    best = _Path(results_dir) / "best_model.zip"
+    final = _Path(results_dir) / "model.zip"
+    model_file = best if best.exists() else (final if final.exists() else None)
+    if model_file is None:
+        logger.warning("no model file found in %s; skipping wandb artifact upload", results_dir)
+        return
+
+    artifact = wandb.Artifact(
+        name=f"zetabench-{agent_name}",
+        type="model",
+        metadata={
+            "seed": int(cfg.seed),
+            "total_steps": int(cfg.total_steps),
+            "fidelity": str(cfg.env.dynamics.fidelity),
+            "train_mode": str(cfg.train_mode),
+            "source_file": model_file.name,
+        },
+    )
+    artifact.add_file(str(model_file), name="model.zip")
+    wandb.log_artifact(artifact)
+    logger.info("logged wandb artifact zetabench-%s from %s", agent_name, model_file)
 
 
 if __name__ == "__main__":
