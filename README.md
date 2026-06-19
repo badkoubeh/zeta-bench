@@ -344,6 +344,61 @@ Config files:
 
 ---
 
+## Train on Amazon SageMaker
+
+Two supported paths. **An honest note first:** SB3's SAC is off-policy and
+single-process — a multi-GPU/multi-node job does *not* accelerate a single run.
+The effective use of a fleet is many independent **single-GPU** jobs (one seed or
+HPO trial each), which the launcher below does. The `multi_gpu` compute profile's
+`data_parallel` flag is a placeholder and is not yet honored.
+
+### A. Interactive Studio notebook (single GPU)
+
+In a SageMaker Studio JupyterLab space on a GPU instance (e.g. `ml.g5.xlarge`):
+
+```bash
+git clone <repo> && cd zeta-bench
+pip install -e ".[train]"                 # torch + Stable-Baselines3
+export WANDB_API_KEY=...                   # optional; omit for offline tracking
+python experiments/train.py compute=large_gpu total_steps=2000000
+```
+
+The agent's device resolution falls back to CPU automatically if the space has no
+GPU, so the same command is safe on a CPU instance.
+
+### B. Managed Training Jobs (parallel seed / HPO fan-out)
+
+Build and push the purpose-built `sagemaker` image stage, then launch jobs with
+the SageMaker SDK (`pip install -e ".[cloud]"`):
+
+```bash
+# Build the SageMaker-target image (add --platform linux/amd64 on Apple Silicon)
+docker build --target sagemaker -t <account>.dkr.ecr.<region>.amazonaws.com/zeta-bench:sm .
+aws ecr get-login-password | docker login --username AWS --password-stdin <account>.dkr.ecr.<region>.amazonaws.com
+docker push <account>.dkr.ecr.<region>.amazonaws.com/zeta-bench:sm
+
+# Fan out 3 independent single-GPU jobs, one per seed
+python experiments/sagemaker_launch.py seeds \
+    --image-uri <account>.dkr.ecr.<region>.amazonaws.com/zeta-bench:sm \
+    --role arn:aws:iam::<account>:role/SageMakerExecutionRole \
+    --s3-output s3://my-bucket/zetabench/ \
+    --seeds 0 1 2 --total-steps 2000000
+
+# Or a Bayesian HPO sweep (12 trials, 4 concurrent)
+python experiments/sagemaker_launch.py hpo \
+    --image-uri ...:sm --role ... --s3-output s3://my-bucket/zetabench/ \
+    --max-jobs 12 --max-parallel-jobs 4
+```
+
+The container's `docker/sm-entrypoint.sh` maps SageMaker conventions onto the
+Hydra entrypoint: hyperparameters become CLI overrides, training writes to
+`/opt/ml/checkpoints` (continuously synced to S3 for spot-instance resumability),
+and the final model is copied to `/opt/ml/model` → `model.tar.gz` in your
+`--s3-output`. Pass your WandB key via the launching environment (e.g. AWS
+Secrets Manager); it is forwarded to each job, never committed.
+
+---
+
 ## Experiment Tracking
 
 All runs are tracked in [Weights & Biases](https://wandb.ai).
