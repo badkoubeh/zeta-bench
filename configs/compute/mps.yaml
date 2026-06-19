@@ -1,0 +1,18 @@
+# @package _global_
+# Compute profile: Apple Silicon (M-series) local execution via Metal (MPS).
+# Use for local development on a Mac with an Apple GPU.
+#
+# NOTE: the policy/value networks here are small MLPs and env stepping stays on
+# CPU, so MPS does not reliably beat plain `compute=cpu` — host<->device transfer
+# can dominate. This profile makes the M-series GPU usable and correct; heavy /
+# throughput-critical training is still meant for a CUDA instance (small_gpu etc.).
+# Keep n_envs modest for the same reason.
+
+compute:
+  profile: mps
+  device: mps
+  n_envs: 4              # SubprocVecEnv parallel workers (env stepping is CPU-bound)
+  batch_size: 64         # SAC/PPO minibatch
+  buffer_size: 100_000   # SAC replay buffer (samples)
+  n_steps: 1024          # PPO rollout length per env
+  data_parallel: false   # single-device

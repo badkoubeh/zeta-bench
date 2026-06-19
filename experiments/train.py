@@ -80,23 +80,40 @@ def main(cfg: DictConfig) -> None:
         agent = _AGENTS[agent_name](cfg)
         agent.learn(env, int(cfg.total_steps))
         logger.info("training complete; artefacts in %s", results_dir)
-        _log_model_artifact(cfg, agent_name, results_dir)
+        _register_model(cfg, agent_name, results_dir)
     finally:
         wandb.finish()
 
 
-def _log_model_artifact(cfg: DictConfig, agent_name: str, results_dir: "Path") -> None:
-    """Upload best_model.zip (or model.zip fallback) to the wandb Model Registry."""
-    if wandb.run is None:
-        return
+def _register_model(cfg: DictConfig, agent_name: str, results_dir: "Path") -> None:
+    """Register the trained model in the W&B Model Registry, or fall back to disk.
 
+    Online (``cfg.wandb.mode == "online"``): logs ``best_model.zip`` (or ``model.zip``)
+    as a versioned artifact and links it into the W&B Model Registry collection
+    ``wandb-registry-model/zetabench-{agent}`` so it is formally registered and
+    consumable by ``evaluate_rl.py``.
+
+    Offline / no API key: makes **no** network call — the trained model simply stays
+    as a zip in the repo under ``results/{run_name}/``; its path is logged so it can
+    be loaded directly (``evaluate_rl.py eval_rl.model_path=...``). This preserves the
+    "offline just works" contract (see :mod:`utils.wandb_setup`).
+    """
     from pathlib import Path as _Path
 
     best = _Path(results_dir) / "best_model.zip"
     final = _Path(results_dir) / "model.zip"
     model_file = best if best.exists() else (final if final.exists() else None)
     if model_file is None:
-        logger.warning("no model file found in %s; skipping wandb artifact upload", results_dir)
+        logger.warning("no model file found in %s; nothing to register", results_dir)
+        return
+
+    # wandb.run is non-None even offline, so gate the network path on the resolved mode.
+    online = wandb.run is not None and str(cfg.wandb.mode) == "online"
+    if not online:
+        logger.info(
+            "wandb offline; skipping Model Registry. Trained model available at %s",
+            model_file,
+        )
         return
 
     artifact = wandb.Artifact(
@@ -111,8 +128,15 @@ def _log_model_artifact(cfg: DictConfig, agent_name: str, results_dir: "Path") -
         },
     )
     artifact.add_file(str(model_file), name="model.zip")
-    wandb.log_artifact(artifact)
-    logger.info("logged wandb artifact zetabench-%s from %s", agent_name, model_file)
+    logged = wandb.run.log_artifact(artifact)
+    logged.wait()  # the version must be committed before it can be linked into the registry
+    target = f"wandb-registry-model/zetabench-{agent_name}"
+    wandb.run.link_artifact(
+        logged,
+        target_path=target,
+        aliases=[str(cfg.train_mode), str(cfg.env.dynamics.fidelity)],
+    )
+    logger.info("registered model in W&B Registry: %s (from %s)", target, model_file.name)
 
 
 if __name__ == "__main__":

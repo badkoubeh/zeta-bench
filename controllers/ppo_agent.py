@@ -32,11 +32,14 @@ class PPOAgent:
         self._model: object | None = None
 
     def _resolve_device(self, requested: str) -> str:
-        """Return the usable device, falling back to CPU if CUDA is absent."""
+        """Return the usable device, falling back to CPU if the accelerator is absent."""
         import torch
 
         if requested == "cuda" and not torch.cuda.is_available():
             logger.warning("compute.device=cuda requested but CUDA unavailable; using cpu")
+            return "cpu"
+        if requested == "mps" and not torch.backends.mps.is_available():
+            logger.warning("compute.device=mps requested but MPS unavailable; using cpu")
             return "cpu"
         return requested
 
