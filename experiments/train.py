@@ -39,8 +39,12 @@ _AGENTS = {"sac": SACAgent, "ppo": PPOAgent}
 
 
 @hydra.main(config_path="../configs", config_name="train", version_base=None)
-def main(cfg: DictConfig) -> None:
-    """Compose config, instantiate env + agent, run the nominal training loop."""
+def main(cfg: DictConfig) -> float | None:
+    """Compose config, instantiate env + agent, run the nominal training loop.
+
+    Returns the best evaluation mean reward (the objective the Optuna sweeper
+    maximizes) for a learned agent, or ``None`` for non-learning paths (pid).
+    """
     from pathlib import Path
 
     results_dir = Path(cfg.results_dir)
@@ -81,8 +85,39 @@ def main(cfg: DictConfig) -> None:
         agent.learn(env, int(cfg.total_steps))
         logger.info("training complete; artefacts in %s", results_dir)
         _register_model(cfg, agent_name, results_dir)
+        objective = _objective_from_evals(results_dir)
     finally:
         wandb.finish()
+
+    # The Optuna sweeper (configs/hpo_*.yaml) maximizes this return value.
+    logger.info("objective (best eval mean reward) = %.4f", objective)
+    return objective
+
+
+def _objective_from_evals(results_dir: "Path") -> float:
+    """Best evaluation mean reward across all eval checkpoints in this run.
+
+    Reads ``evaluations.npz`` written by SB3's ``EvalCallback`` (keys
+    ``timesteps``/``results``/``ep_lengths``; ``results`` has shape
+    ``(n_evals, n_eval_episodes)``) and returns ``results.mean(axis=1).max()`` —
+    the highest mean reward any eval checkpoint achieved, i.e. the score of the
+    ``best_model.zip`` the callback kept. This is the HPO objective.
+
+    Raises if no eval ran (so misconfigured sweeps fail loudly rather than
+    silently optimizing nothing): set ``eval_callback.every_n_steps`` below
+    ``total_steps`` so at least one evaluation happens.
+    """
+    import numpy as np
+
+    evals = results_dir / "evaluations.npz"
+    if not evals.exists():
+        raise RuntimeError(
+            f"no evaluations.npz in {results_dir}; the EvalCallback never ran. "
+            "Set eval_callback.every_n_steps < total_steps so at least one "
+            "evaluation produces the HPO objective."
+        )
+    data = np.load(evals)
+    return float(data["results"].mean(axis=1).max())
 
 
 def _register_model(cfg: DictConfig, agent_name: str, results_dir: "Path") -> None:

@@ -29,6 +29,7 @@ dependencies = [
 train = [
     "stable-baselines3>=2.3",
     "torch>=2.3",
+    "hydra-optuna-sweeper>=1.2",   # TPE/Bayesian HPO via `--config-name=hpo_{sac,ppo}`
 ]
 # Launch-side only (SageMaker Studio / laptop) — submits Training Jobs via
 # experiments/sagemaker_launch.py. Never installed into the training image.
