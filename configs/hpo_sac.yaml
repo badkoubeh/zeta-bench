@@ -1,0 +1,39 @@
+# SAC hyperparameter search via the Optuna sweeper (TPE/Bayesian + pruning).
+#
+# Usage (must be a multirun, hence -m):
+#   python experiments/train.py -m --config-name=hpo_sac compute=small_gpu
+#   # quick offline smoke: tiny budget + early eval so each trial yields an objective
+#   python experiments/train.py -m --config-name=hpo_sac compute=cpu \
+#     total_steps=3000 agent.learning_starts=500 eval_callback.every_n_steps=1000 \
+#     hydra.sweeper.n_trials=2
+#
+# Each trial runs experiments/train.py once; main() returns the best eval mean
+# reward (see _objective_from_evals), which Optuna maximizes. Trials are made
+# unique by the ``_t{job.num}`` suffix so their results/ dirs never collide.
+
+defaults:
+  - train
+  - override hydra/sweeper: optuna
+  - _self_
+
+# Trial-unique run name (and therefore results_dir + wandb run) per sweep job.
+run_name: ${agent.name}_${env.dynamics.fidelity}_${train_mode}_${seed}_t${hydra:job.num}
+
+hydra:
+  sweeper:
+    sampler:
+      _target_: optuna.samplers.TPESampler
+      seed: ${seed}              # reproducible search given the same study + seed
+    direction: maximize          # objective = best eval mean reward
+    study_name: zetabench_sac_hpo
+    n_trials: 20
+    n_jobs: 1
+    params:
+      # agent.* values are read straight from the agent config by SACAgent.learn.
+      agent.learning_rate: tag(log, interval(1.0e-5, 1.0e-3))
+      agent.gamma: interval(0.95, 0.999)
+      agent.tau: interval(0.001, 0.02)
+      agent.ent_coef: choice(auto, 0.05, 0.1, 0.2)
+      # NB: SACAgent reads batch_size from the COMPUTE profile, not agent.* —
+      # so the sweepable key is compute.batch_size.
+      compute.batch_size: choice(64, 128, 256, 512)
