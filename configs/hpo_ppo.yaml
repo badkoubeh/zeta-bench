@@ -1,15 +1,18 @@
 # PPO hyperparameter search via the Optuna sweeper (TPE/Bayesian + pruning).
 #
 # Usage (must be a multirun, hence -m):
-#   python experiments/train.py -m --config-name=hpo_ppo compute=small_gpu
+#   python experiments/train.py -m --config-name=hpo_ppo compute=kaggle_gpu   # full, on cluster
+#   python experiments/train.py -m --config-name=hpo_ppo budget=laptop        # coarse, on a Mac
 #   # quick offline smoke:
 #   python experiments/train.py -m --config-name=hpo_ppo compute=cpu \
 #     total_steps=3000 eval_callback.every_n_steps=1000 hydra.sweeper.n_trials=2
 #
-# See configs/hpo_sac.yaml for how the objective + trial-unique naming work.
+# Budget comes from the `budget` group (full default). See configs/hpo_sac.yaml
+# for how the objective + trial-unique naming work.
 
 defaults:
   - train
+  - budget: full
   - override agent: ppo          # this sweep is PPO-specific
   - override hydra/sweeper: optuna
   - _self_
@@ -23,8 +26,7 @@ hydra:
       seed: ${seed}
     direction: maximize
     study_name: zetabench_ppo_hpo
-    n_trials: 20
-    n_jobs: 1
+    n_jobs: 1                     # n_trials comes from the budget group
     params:
       agent.learning_rate: tag(log, interval(1.0e-5, 1.0e-3))
       agent.gamma: interval(0.95, 0.999)

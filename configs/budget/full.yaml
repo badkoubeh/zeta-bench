@@ -1,0 +1,10 @@
+# @package _global_
+# Full HPO budget (the default for hpo_sac / hpo_ppo): production-scale search
+# meant for a CUDA cluster. Pick the hardware separately, e.g.
+#   python experiments/train.py -m --config-name=hpo_sac compute=kaggle_gpu
+total_steps: 2_000_000
+eval_callback:
+  every_n_steps: 50_000
+hydra:
+  sweeper:
+    n_trials: 20
