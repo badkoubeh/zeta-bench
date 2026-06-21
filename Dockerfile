@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1.7-labs
 #
-# Multi-stage build for zeta-rl.
+# Multi-stage build for zeta-bench.
 #
 # Base: nvidia/cuda runtime so PyTorch's CUDA path lights up on GPU hosts.
 # On CPU-only hosts (no NVIDIA Container Runtime) the container still runs —
@@ -39,7 +39,7 @@ RUN --mount=type=cache,target=/root/.cache/uv \
     uv venv --python ${PYTHON_VERSION} /opt/venv && \
     VIRTUAL_ENV=/opt/venv uv pip install --no-deps --requirement requirements.lock
 
-# Copy the project source and install zeta-rl itself (deps already resolved).
+# Copy the project source and install zeta-bench itself (deps already resolved).
 COPY . /build
 RUN VIRTUAL_ENV=/opt/venv uv pip install --no-deps /build
 
@@ -52,8 +52,10 @@ ENV PYTHONUNBUFFERED=1 \
     PATH="/opt/venv/bin:${PATH}" \
     VIRTUAL_ENV=/opt/venv \
     PYTHONPATH=/workspace \
-    WANDB_MODE=offline \
     HYDRA_FULL_ERROR=1
+# WANDB_MODE is intentionally not pinned here: the config resolves it at runtime
+# (online when WANDB_API_KEY is supplied, offline otherwise). Set WANDB_MODE
+# explicitly at `docker run` time to override.
 
 # Runtime-only system deps. ffmpeg is required for matplotlib MP4 writer.
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -82,3 +84,21 @@ USER zeta
 # Default command shows the train.py CLI; override at `docker run` time.
 ENTRYPOINT ["python"]
 CMD ["experiments/train.py", "--help"]
+
+# ---------- sagemaker stage ----------
+# Purpose-built image for Amazon SageMaker Training Jobs. Build explicitly with
+# `docker build --target sagemaker ...`; the default target is `runtime`, so the
+# hardened local/compose image above is untouched.
+#
+# SageMaker BYOC starts the container as `docker run <image> train` and mounts
+# /opt/ml/* as root, so this stage runs as root and swaps in an entrypoint that
+# maps the `train` invocation onto the project's Hydra entrypoint.
+FROM runtime AS sagemaker
+
+USER root
+
+COPY docker/sm-entrypoint.sh /usr/local/bin/sm-entrypoint.sh
+RUN chmod +x /usr/local/bin/sm-entrypoint.sh
+
+ENTRYPOINT ["/usr/local/bin/sm-entrypoint.sh"]
+CMD ["train"]

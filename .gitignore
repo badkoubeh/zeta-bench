@@ -44,6 +44,9 @@ htmlcov/
 .DS_Store
 Thumbs.db
 
+# Local secrets — never commit
+.env
+
 # Local AI/editor tool state
 .claude/
 

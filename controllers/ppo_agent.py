@@ -32,11 +32,14 @@ class PPOAgent:
         self._model: object | None = None
 
     def _resolve_device(self, requested: str) -> str:
-        """Return the usable device, falling back to CPU if CUDA is absent."""
+        """Return the usable device, falling back to CPU if the accelerator is absent."""
         import torch
 
         if requested == "cuda" and not torch.cuda.is_available():
             logger.warning("compute.device=cuda requested but CUDA unavailable; using cpu")
+            return "cpu"
+        if requested == "mps" and not torch.backends.mps.is_available():
+            logger.warning("compute.device=mps requested but MPS unavailable; using cpu")
             return "cpu"
         return requested
 
@@ -52,8 +55,9 @@ class PPOAgent:
         if self._cfg is None:
             raise RuntimeError("PPOAgent.learn requires a config (was the agent loaded?)")
 
+        from omegaconf import OmegaConf
         from stable_baselines3 import PPO
-        from stable_baselines3.common.callbacks import CallbackList, CheckpointCallback
+        from stable_baselines3.common.callbacks import CallbackList, CheckpointCallback, EvalCallback
         from stable_baselines3.common.env_util import make_vec_env
 
         from controllers._sb3_logging import WandbLoggingCallback
@@ -110,6 +114,31 @@ class PPOAgent:
                     save_freq=save_freq,
                     save_path=str(cfg.results_dir),
                     name_prefix=str(cfg.run_name),
+                )
+            )
+
+        if "results_dir" in cfg:
+            # Eval env: separate env with curriculum pinned at full difficulty so
+            # best_model.zip is selected on the hardest conditions, not training distribution.
+            eval_cfg = OmegaConf.merge(
+                cfg, OmegaConf.create({"env": {"curriculum": {"progress_override": 1.0}}})
+            )
+            eval_env = make_vec_env(lambda: RocketLandingEnv(eval_cfg), n_envs=1, seed=seed + 999)
+            evalcb = cfg.get("eval_callback", None)
+            eval_every = int(evalcb.every_n_steps) if evalcb is not None else 50_000
+            n_eval_eps = int(evalcb.n_eval_episodes) if evalcb is not None else 20
+            # eval_freq is counted in vec-env steps, so scale by n_envs to keep the
+            # cadence fixed in env steps regardless of the compute profile's worker count.
+            eval_freq = max(eval_every // max(n_envs, 1), 1)
+            callbacks.append(
+                EvalCallback(
+                    eval_env,
+                    best_model_save_path=str(cfg.results_dir),
+                    log_path=str(cfg.results_dir),
+                    eval_freq=eval_freq,
+                    n_eval_episodes=n_eval_eps,
+                    deterministic=True,
+                    verbose=1,
                 )
             )
 

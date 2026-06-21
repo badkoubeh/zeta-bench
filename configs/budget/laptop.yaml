@@ -1,0 +1,14 @@
+# @package _global_
+# Coarse HPO budget sized for a MacBook (M4). Selecting `budget=laptop` also pins
+# compute=mps, so a laptop sweep is one token:
+#   PYTORCH_ENABLE_MPS_FALLBACK=1 python experiments/train.py -m \
+#     --config-name=hpo_sac budget=laptop
+# Use it to RANK configs locally, then refine the top one at full budget on the cluster.
+defaults:
+  - override /compute: mps      # laptop implies the Apple-Silicon GPU profile
+total_steps: 400_000            # coarse: enough to rank configs, not to converge
+eval_callback:
+  every_n_steps: 50_000         # ~8 evals -> stable best-model objective
+hydra:
+  sweeper:
+    n_trials: 10                # coarse search; raise if you have time to spare

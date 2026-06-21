@@ -1,6 +1,12 @@
 # @package _global_
 # Compute profile: multi-GPU training (DataParallel / DistributedDataParallel).
 # Launcher (torchrun / accelerate) sets WORLD_SIZE and RANK at runtime.
+#
+# NOTE: `data_parallel` is aspirational and currently UNWIRED — controllers/
+# sac_agent.py and ppo_agent.py do not read it, and SB3's off-policy SAC is
+# single-process, so this profile does not distribute one run across GPUs. To
+# use a fleet today, fan out independent single-GPU jobs (one seed/trial each)
+# via experiments/sagemaker_launch.py instead.
 
 compute:
   profile: multi_gpu
@@ -9,4 +15,4 @@ compute:
   batch_size: 2048
   buffer_size: 4_000_000
   n_steps: 8192
-  data_parallel: true
+  data_parallel: true  # placeholder — not yet honored by the agents

@@ -18,12 +18,16 @@ run_name: ${agent.name}_${env.dynamics.fidelity}_${train_mode}_${seed}
 
 wandb:
   project: zeta-bench
-  mode: ${oc.env:WANDB_MODE,offline}  # offline by default; opt-in to online via env var
+  mode: ${zeta.wandb_mode:}  # WANDB_MODE if set, else online when WANDB_API_KEY exists, else offline
   tags: []
 
 checkpoint:
   every_n_steps: 50_000
   keep_last: 3
+
+eval_callback:
+  every_n_steps: 50_000   # env steps between eval-based model-selection checks
+  n_eval_episodes: 20     # episodes per eval (curriculum pinned to full difficulty)
 
 resume_from: null   # path to a .zip checkpoint; resumes training from that step count
 
