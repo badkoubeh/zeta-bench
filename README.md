@@ -236,11 +236,21 @@ The recommended setup uses [uv](https://docs.astral.sh/uv/):
 cd zeta-bench
 uv venv --python 3.12            # create .venv with Python 3.12
 source .venv/bin/activate
-uv pip install -e ".[dev]"       # runtime + dev deps (the PID path needs no torch)
 
-# Linux / Apple Silicon only — install the RL training stack (torch + SB3):
-#   uv pip install -e ".[dev,train]"
+# Pick the extras for what you want to do:
+uv pip install -e ".[dev]"          # PID eval + tests only — no torch needed
+uv pip install -e ".[dev,train]"    # + RL training stack (torch + SB3) — Linux / Apple Silicon
+uv pip install -e ".[dev,cloud]"    # + SageMaker launch SDK (for cloud fan-out only)
 ```
+
+| Extra | Pulls in | Install it when you want to… |
+| --- | --- | --- |
+| `dev` | pytest, ruff, mypy, pre-commit | run the PID baseline, tests, and lint |
+| `train` | torch, Stable-Baselines3, Optuna sweeper | train SAC/PPO or run HPO (Linux or Apple Silicon) |
+| `cloud` | sagemaker, boto3 | launch SageMaker Training Jobs from your laptop |
+
+> **Intel (x86) Mac:** PyTorch dropped x86 macOS wheels, so `[train]` won't install
+> there — use the PID path locally, or train on Apple Silicon, Linux, or in Docker.
 
 > `requirements.lock` is a pinned Linux / py3.12 lockfile used by Docker and CI.
 > To reproduce that exact dependency set on Linux: `uv pip sync requirements.lock`.
@@ -263,113 +273,53 @@ The PID baseline is the fully implemented end-to-end path. It builds the
 environment, flies the cascaded PID controller, and writes per-episode metrics.
 
 ```bash
-python experiments/evaluate_pid.py                                  # 10 episodes, full envelope
+python experiments/evaluate_pid.py                                  # 20 episodes, full envelope
 python experiments/evaluate_pid.py seed=7 eval_pid.n_episodes=20    # more episodes, different seed
 python experiments/evaluate_pid.py eval_pid.curriculum_progress=0.0 # easiest envelope (low drop, no lateral offset)
 make eval-pid SEED=42                                               # Makefile shortcut (runs locally)
 ```
 
-### 3. Render videos and plots
+### 3. Train an agent (SAC / PPO)
+
+Training is config-driven: a **compute profile** picks the device and batch sizes, an
+**agent** picks the algorithm, and everything else is an override. Pick the block that
+matches your hardware. Outputs (including `best_model.zip`) land in `results/{run_name}/`.
+
+**MacBook (Apple Silicon / M-series, MPS):**
 
 ```bash
-python experiments/evaluate_pid.py eval_pid.render=true eval_pid.render_fps=50
-make viz SEED=42                                                    # shortcut for the above
+# Quick run on the Metal GPU; the fallback flag covers any op MPS doesn't support yet.
+PYTORCH_ENABLE_MPS_FALLBACK=1 python experiments/train.py compute=mps agent=sac
+
+# Coarse hyperparameter search sized for a laptop (MPS, ~400k steps, 10 trials):
+PYTORCH_ENABLE_MPS_FALLBACK=1 python experiments/train.py -m \
+    --config-name=hpo_sac budget=laptop
 ```
 
-Outputs land in `results/{run_name}/`, where `run_name = pid_moderate_eval_{seed}`:
-
-```
-results/pid_moderate_eval_42/
-├── episodes.csv                       # one row per episode (outcome, return, touchdown speed, fuel)
-├── summary.json                       # aggregate stats (success rate, means, ...)
-├── plots/timeseries_ep{idx}_{outcome}.png   # best/worst episode time series (render=true)
-└── video/landing_ep{idx}_{outcome}.mp4      # 2D side-view animation        (render=true)
-```
-
-Rendering is **off by default** so the tune-and-rerun loop stays fast — MP4
-generation is the slow step.
-
-### 4. Run the tests
+**CUDA GPU (workstation, or a SageMaker Studio / cloud notebook):**
 
 ```bash
-pytest tests/ -v                 # full suite (enforces a 90% coverage gate)
-pytest tests/test_physics.py -v  # physics invariants only
+python experiments/train.py compute=large_gpu agent=sac total_steps=2000000
+python experiments/train.py compute=large_gpu agent=ppo total_steps=2000000
+
+# Full Optuna HPO sweep (20 trials, 2M steps each):
+python experiments/train.py -m --config-name=hpo_sac compute=large_gpu budget=full
 ```
 
-### Not yet runnable (Phase 4)
+This is exactly what you run inside a SageMaker Studio JupyterLab space on a GPU instance
+(e.g. `ml.g5.xlarge`) after `pip install -e ".[train]"` and (optionally)
+`export WANDB_API_KEY=...`. Device resolution falls back to CPU if the space has no GPU,
+so the same command is safe on a CPU instance.
 
-The RL training and robustness-sweep entrypoints are **stubs that currently raise
-`NotImplementedError`** — they document the intended interface but are not wired
-up yet:
+**Amazon SageMaker (managed jobs — parallel seed / HPO fan-out):**
 
-```bash
-python experiments/train.py --config-name train seed=42                # ❌ stub (Phase 4)
-python experiments/train.py --config-name train agent=ppo seed=42      # ❌ stub (Phase 4)
-python experiments/evaluate_robustness.py checkpoint=results/sac_moderate_adversarial_42/  # ❌ stub (Phase 4)
-```
+> **Honest note:** SB3's SAC is off-policy and single-process — a multi-GPU/multi-node
+> job does *not* speed up a single run. The effective use of a fleet is many independent
+> **single-GPU** jobs (one seed or HPO trial each), which the launcher below does. The
+> `multi_gpu` profile's `data_parallel` flag is a placeholder and is not yet honored.
 
-The `make train` / `make eval` targets invoke these inside Docker and will fail
-until the agents are implemented.
-
-All results, checkpoints, and videos are saved to `results/{run_name}/`.
-
----
-
-## Configuration
-
-All hyperparameters are config-driven (Hydra) — nothing is hardcoded. Override
-any parameter at the command line:
-
-```bash
-# Working today (PID eval):
-python experiments/evaluate_pid.py eval_pid.n_episodes=20
-python experiments/evaluate_pid.py eval_pid.curriculum_progress=0.5
-python experiments/evaluate_pid.py seed=123
-
-# Future interface (training — Phase 4 stub):
-python experiments/train.py dynamics.fidelity=high
-python experiments/train.py agent.sac.learning_rate=3e-4
-python experiments/train.py curriculum.anneal_steps=500000
-```
-
-Config files:
-- `configs/train.yaml` — top-level training composition (Phase 4)
-- `configs/eval_pid.yaml` — PID baseline eval composition (entry point today)
-- `configs/env.yaml` — environment and dynamics parameters
-- `configs/reward.yaml` — all reward weights
-- `configs/pid_controller.yaml` — PID gains
-- `configs/adversary.yaml` — adversary hyperparameters
-- `configs/agent/sac.yaml` — SAC hyperparameters
-- `configs/agent/ppo.yaml` — PPO hyperparameters
-
----
-
-## Train on Amazon SageMaker
-
-Two supported paths. **An honest note first:** SB3's SAC is off-policy and
-single-process — a multi-GPU/multi-node job does *not* accelerate a single run.
-The effective use of a fleet is many independent **single-GPU** jobs (one seed or
-HPO trial each), which the launcher below does. The `multi_gpu` compute profile's
-`data_parallel` flag is a placeholder and is not yet honored.
-
-### A. Interactive Studio notebook (single GPU)
-
-In a SageMaker Studio JupyterLab space on a GPU instance (e.g. `ml.g5.xlarge`):
-
-```bash
-git clone <repo> && cd zeta-bench
-pip install -e ".[train]"                 # torch + Stable-Baselines3
-export WANDB_API_KEY=...                   # optional; omit for offline tracking
-python experiments/train.py compute=large_gpu total_steps=2000000
-```
-
-The agent's device resolution falls back to CPU automatically if the space has no
-GPU, so the same command is safe on a CPU instance.
-
-### B. Managed Training Jobs (parallel seed / HPO fan-out)
-
-Build and push the purpose-built `sagemaker` image stage, then launch jobs with
-the SageMaker SDK (`pip install -e ".[cloud]"`):
+Build and push the purpose-built `sagemaker` image stage, then fan out jobs with the
+SageMaker SDK (`pip install -e ".[cloud]"`):
 
 ```bash
 # Build the SageMaker-target image (add --platform linux/amd64 on Apple Silicon)
@@ -390,12 +340,153 @@ python experiments/sagemaker_launch.py hpo \
     --max-jobs 12 --max-parallel-jobs 4
 ```
 
-The container's `docker/sm-entrypoint.sh` maps SageMaker conventions onto the
-Hydra entrypoint: hyperparameters become CLI overrides, training writes to
-`/opt/ml/checkpoints` (continuously synced to S3 for spot-instance resumability),
-and the final model is copied to `/opt/ml/model` → `model.tar.gz` in your
-`--s3-output`. Pass your WandB key via the launching environment (e.g. AWS
-Secrets Manager); it is forwarded to each job, never committed.
+`docker/sm-entrypoint.sh` maps SageMaker conventions onto the Hydra entrypoint:
+hyperparameters become CLI overrides, training writes to `/opt/ml/checkpoints`
+(continuously synced to S3 for spot-instance resumability), and the final model lands in
+`/opt/ml/model` → `model.tar.gz` in your `--s3-output`. Pass your WandB key via the
+launching environment (e.g. AWS Secrets Manager); it is forwarded to each job, never committed.
+
+**CPU (dev / smoke test):**
+
+```bash
+python experiments/train.py compute=cpu total_steps=20000        # short run to verify wiring
+make train COMPUTE=cpu AGENT=sac SEED=42                          # same, inside Docker
+```
+
+Resume an interrupted run with `resume_from=results/<run_name>/<checkpoint>.zip`. If a
+requested accelerator is unavailable the agent logs a warning and falls back to CPU, so
+the same command is safe anywhere. (`train_mode=adversarial` is not wired yet — see below.)
+
+### 4. Evaluate a trained agent
+
+`evaluate_rl.py` flies a trained SAC/PPO policy over the full envelope and writes the same
+per-episode metrics as the PID path. Point it at a local checkpoint or a W&B artifact:
+
+```bash
+# From a local checkpoint:
+python experiments/evaluate_rl.py agent=sac \
+    eval_rl.model_path=results/sac_moderate_nominal_42/best_model.zip
+
+# From the W&B model registry:
+python experiments/evaluate_rl.py agent=sac \
+    eval_rl.model_artifact="entity/project/zetabench-sac:best"
+
+# Add rendering (best/worst-episode plots + MP4):
+python experiments/evaluate_rl.py agent=ppo \
+    eval_rl.model_path=results/ppo_moderate_nominal_42/best_model.zip \
+    eval_rl.render=true
+```
+
+### 5. Render videos and plots
+
+Both eval entry points share a `render` toggle (off by default). For the PID baseline:
+
+```bash
+python experiments/evaluate_pid.py eval_pid.render=true eval_pid.render_fps=50
+make viz SEED=42                                                    # shortcut for the above
+```
+
+For a trained agent, use `eval_rl.render=true` (see step 4).
+
+Outputs land in `results/{run_name}/`, where `run_name = pid_moderate_eval_{seed}`:
+
+```
+results/pid_moderate_eval_42/
+├── episodes.csv                       # one row per episode (outcome, return, touchdown speed, fuel)
+├── summary.json                       # aggregate stats (success rate, means, ...)
+├── plots/timeseries_ep{idx}_{outcome}.png   # best/worst episode time series (render=true)
+└── video/landing_ep{idx}_{outcome}.mp4      # 2D side-view animation        (render=true)
+```
+
+Rendering is **off by default** so the tune-and-rerun loop stays fast — MP4
+generation is the slow step.
+
+### 6. Run the tests
+
+```bash
+pytest tests/ -v                 # full suite (enforces a 90% coverage gate)
+pytest tests/test_physics.py -v  # physics invariants only
+```
+
+### Config quick reference
+
+The knobs you'll actually reach for, by task. Everything is a Hydra override appended to
+the command (`key=value`), and `-m` turns a run into a sweep. The full parameter set lives
+in `configs/` — these are the common ones.
+
+**Where am I running it? (`compute=`, `budget=`)**
+
+| Override | Options | Use it to… |
+| --- | --- | --- |
+| `compute=` | `cpu`, `mps`, `small_gpu`, `large_gpu`, `kaggle_gpu` | pick device + batch/buffer sizes for your hardware (MacBook → `mps`, cloud GPU → `large_gpu`) |
+| `budget=` | `laptop`, `full` | HPO only: laptop = ~400k steps / 10 trials (implies `compute=mps`); full = 2M steps / 20 trials |
+
+**What am I running? (`agent=`, `--config-name=`)**
+
+| Override | Options | Use it to… |
+| --- | --- | --- |
+| `agent=` | `sac`, `ppo`, `pid` | choose the controller/algorithm |
+| `--config-name=` | `train`, `hpo_sac`, `hpo_ppo` | switch from a single run to an Optuna sweep (pair with `-m`) |
+| `train_mode=` | `nominal` | nominal works today; `adversarial` is not yet wired (see below) |
+
+**How big / how reproducible? (scale + seeds)**
+
+| Override | Default | Use it to… |
+| --- | --- | --- |
+| `total_steps=` | `2000000` | set training length (lower for smoke tests) |
+| `seed=` | `42` | fix the seed for reproducible runs |
+| `eval_callback.every_n_steps=` | `50000` | how often to evaluate for best-model selection |
+| `eval_callback.n_eval_episodes=` | `20` | episodes per evaluation |
+
+**Output features (rendering, episodes, difficulty)**
+
+| Override | Default | Use it to… |
+| --- | --- | --- |
+| `eval_pid.render=` / `eval_rl.render=` | `false` | write best/worst-episode PNG plots + MP4 video |
+| `eval_pid.render_fps=` / `eval_rl.render_fps=` | `50` | set rendered-video frame rate |
+| `eval_pid.n_episodes=` / `eval_rl.n_episodes=` | `20` / `100` | number of evaluation episodes |
+| `eval_pid.curriculum_progress=` / `eval_rl.curriculum_progress=` | `1.0` | pin difficulty (`0.0` easiest … `1.0` full envelope) |
+| `eval_rl.model_path=` | `null` | evaluate a local checkpoint `.zip` |
+| `eval_rl.model_artifact=` | `null` | evaluate a checkpoint pulled from the W&B registry |
+
+> **Not yet runnable.** The robustness disturbance sweep
+> (`python experiments/evaluate_robustness.py`, and the `make eval` target that wraps it)
+> and adversarial training (`train_mode=adversarial`) still raise `NotImplementedError`.
+> Everything else above runs today.
+
+All results, checkpoints, and videos are saved to `results/{run_name}/`.
+
+---
+
+## Configuration
+
+All hyperparameters are config-driven (Hydra) — nothing is hardcoded. Override
+any parameter at the command line:
+
+```bash
+# PID eval:
+python experiments/evaluate_pid.py eval_pid.n_episodes=20
+python experiments/evaluate_pid.py eval_pid.curriculum_progress=0.5
+python experiments/evaluate_pid.py seed=123
+
+# Training (any dotted path is overridable):
+python experiments/train.py env.dynamics.fidelity=high
+python experiments/train.py agent.learning_rate=3e-4
+python experiments/train.py env.curriculum.anneal_steps=500000
+```
+
+See the [Config quick reference](#config-quick-reference) above for the common task-level
+knobs (`compute=`, `agent=`, `budget=`, render flags, …). Config files:
+- `configs/train.yaml` — top-level training composition
+- `configs/eval_pid.yaml` — PID baseline eval composition
+- `configs/eval_rl.yaml` — trained-agent eval composition
+- `configs/env.yaml` — environment and dynamics parameters
+- `configs/reward.yaml` — all reward weights
+- `configs/pid_controller.yaml` — PID gains
+- `configs/adversary.yaml` — adversary hyperparameters (adversarial mode not yet wired)
+- `configs/agent/{sac,ppo,pid}.yaml` — per-algorithm hyperparameters
+- `configs/compute/{cpu,mps,small_gpu,large_gpu,kaggle_gpu}.yaml` — device profiles
+- `configs/budget/{laptop,full}.yaml` — HPO sweep budgets
 
 ---
 
