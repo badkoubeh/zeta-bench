@@ -27,7 +27,7 @@ def test_reset_returns_valid_obs_and_info(cfg) -> None:
     env = RocketLandingEnv(cfg)
     obs, info = env.reset(seed=42)
     assert obs.shape == (OBS_DIM,)
-    assert obs.dtype == np.float64
+    assert obs.dtype == np.float32
     assert "curriculum_progress" in info
     assert 0.0 <= info["curriculum_progress"] <= 1.0
 

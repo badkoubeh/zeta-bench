@@ -7,9 +7,14 @@ summary to disk and prints a human-readable summary to stdout.
 
 CLI examples
 ------------
-    # from wandb Model Registry (canonical)
+    # from wandb Model Registry (canonical); bare ref resolves entity/project
+    # from wandb.* in configs/eval_rl.yaml
     python experiments/evaluate_rl.py agent=sac \\
-      eval_rl.model_artifact="entity/project/zetabench-sac:best"
+      eval_rl.model_artifact="zetabench-sac:best"
+
+    # fully-qualified registry ref
+    python experiments/evaluate_rl.py agent=sac \\
+      eval_rl.model_artifact="<entity>/wandb-registry-model/zetabench-sac:best"
 
     # local .zip path (offline / no wandb)
     python experiments/evaluate_rl.py agent=sac \\
@@ -17,19 +22,21 @@ CLI examples
 
     # PPO, 200 episodes, full difficulty
     python experiments/evaluate_rl.py agent=ppo \\
-      eval_rl.model_artifact="entity/project/zetabench-ppo:best" \\
+      eval_rl.model_artifact="zetabench-ppo:best" \\
       eval_rl.n_episodes=200
 
     # Wind disturbance test (Phase 3 placeholder)
     python experiments/evaluate_rl.py agent=sac \\
-      eval_rl.model_artifact="entity/project/zetabench-sac:best" \\
+      eval_rl.model_artifact="zetabench-sac:best" \\
       eval_rl.disturbance.wind_mps=5.0
 
 Model resolution
 ----------------
-``eval_rl.model_artifact`` takes precedence. When set, the artifact is
-downloaded via ``wandb.use_artifact`` and the local ``model.zip`` path is used.
-Falls back to ``eval_rl.model_path`` (local file) when artifact is null.
+``eval_rl.model_artifact`` takes precedence. When set, the ref is validated
+(the docs placeholder ``entity/project/...`` is rejected), qualified with the
+resolved ``wandb.entity``/``wandb.project``, downloaded via
+``wandb.use_artifact``, and the local ``model.zip`` path is used. Falls back to
+``eval_rl.model_path`` (local file) when artifact is null.
 
 Outputs
 -------
@@ -56,6 +63,10 @@ from envs.rocket_landing_env import RocketLandingEnv
 from utils.logging_config import get_logger
 from utils.normalisation import FixedObsScaler
 from utils.render import Trajectory, animate_side_view, plot_timeseries
+from utils.wandb_setup import register_resolvers, resolve_wandb_mode
+
+# Register ${zeta.wandb_mode:} before Hydra composes configs/eval_rl.yaml.
+register_resolvers()
 
 logger = get_logger(__name__)
 
@@ -110,6 +121,54 @@ class _TrajectoryBuffer:
         )
 
 
+def _validate_artifact_ref(ref: str) -> str:
+    """Validate the artifact ref's shape and reject the docs placeholder.
+
+    Catches the example string ``entity/project/...:alias`` copied verbatim and
+    missing-alias mistakes *before* any network call, so the failure is a clear,
+    actionable message instead of a raw wandb ``CommError`` deep in
+    ``use_artifact`` (``project 'project' not found under entity 'entity'``).
+    """
+    ref = ref.strip()
+    if ":" not in ref:
+        raise ValueError(
+            f"Invalid eval_rl.model_artifact {ref!r}: missing ':<alias>' "
+            "(e.g. 'zetabench-sac:best')."
+        )
+    parts = ref.split("/")
+    if len(parts) > 3:
+        raise ValueError(
+            f"Invalid eval_rl.model_artifact {ref!r}: expected '<name>:<alias>', "
+            "'<project>/<name>:<alias>' or '<entity>/<project>/<name>:<alias>'."
+        )
+    if len(parts) == 3 and parts[0] == "entity" and parts[1] == "project":
+        raise ValueError(
+            f"eval_rl.model_artifact={ref!r} is the documentation placeholder, "
+            "not a real reference. Pass a real ref such as "
+            "'<entity>/wandb-registry-model/zetabench-sac:best' or a bare "
+            "'zetabench-sac:best' (entity/project filled from wandb.* in "
+            "configs/eval_rl.yaml), or set eval_rl.model_path to a local .zip."
+        )
+    return ref
+
+
+def _qualify_artifact_ref(ref: str, *, entity: str | None, project: str | None) -> str:
+    """Prepend the resolved entity/project to a bare ``name:alias`` ref."""
+    parts = ref.split("/")
+    if len(parts) == 1:
+        if not project:
+            raise ValueError(
+                f"eval_rl.model_artifact={ref!r} has no project segment and "
+                "wandb.project is unset in configs/eval_rl.yaml; pass a "
+                "fully-qualified ref or set wandb.project."
+            )
+        prefix = f"{entity}/{project}" if entity else project
+        return f"{prefix}/{ref}"
+    if len(parts) == 2 and entity:
+        return f"{entity}/{ref}"
+    return ref
+
+
 def _resolve_model_path(cfg: DictConfig) -> str:
     """Return a local .zip path, downloading from wandb if model_artifact is set."""
     artifact_ref = cfg.eval_rl.get("model_artifact", None)
@@ -118,14 +177,37 @@ def _resolve_model_path(cfg: DictConfig) -> str:
     if artifact_ref:
         import wandb
 
-        logger.info("downloading model artifact: %s", artifact_ref)
+        wandb_cfg = cfg.get("wandb", {})
+        project = wandb_cfg.get("project", "zeta-bench")
+        entity = wandb_cfg.get("entity", None)
+        mode = wandb_cfg.get("mode", None) or resolve_wandb_mode()
+
+        # Validate up front so the docs placeholder / malformed refs fail fast
+        # with a clear message instead of a raw wandb CommError.
+        ref = _validate_artifact_ref(str(artifact_ref))
+
+        logger.info("downloading model artifact: %s", ref)
         run = wandb.init(
-            project=cfg.wandb.project if "wandb" in cfg else "zetabench",
+            entity=entity,
+            project=project,
             job_type="eval",
             name=cfg.run_name,
+            mode=mode,
         )
-        artifact = run.use_artifact(str(artifact_ref), type="model")
-        model_dir = artifact.download()
+        # Qualify a bare 'name:alias' with the resolved entity/project so the
+        # lookup targets the right account rather than wandb's default guess.
+        qualified = _qualify_artifact_ref(
+            ref, entity=entity or run.entity, project=project
+        )
+        try:
+            artifact = run.use_artifact(qualified, type="model")
+            model_dir = artifact.download()
+        except Exception as exc:
+            raise RuntimeError(
+                f"Failed to download wandb model artifact {qualified!r}: {exc}. "
+                "Verify the ref exists and your WANDB_API_KEY has access to it, "
+                "or set eval_rl.model_path to a local .zip."
+            ) from exc
         path = str(Path(model_dir) / "model.zip")
         logger.info("artifact downloaded to %s", path)
         return path
