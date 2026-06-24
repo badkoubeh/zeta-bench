@@ -30,10 +30,21 @@ seed: 42
 run_name: ${agent.name}_${env.dynamics.fidelity}_eval_rl_${seed}
 results_dir: results/${run_name}
 
+# Weights & Biases settings used to resolve model_artifact from the registry.
+# entity/project default a bare "zetabench-sac:best" ref so it targets the right
+# account; mode follows the same env-driven resolution as training.
+wandb:
+  project: zeta-bench
+  entity: null               # null = the API key's default entity
+  mode: ${zeta.wandb_mode:}  # WANDB_MODE if set, else online when WANDB_API_KEY exists, else offline
+
 eval_rl:
   # Exactly one of model_artifact or model_path must be set.
   # model_artifact takes precedence if both are provided.
-  model_artifact: null   # wandb artifact ref: "entity/project/zetabench-sac:best"
+  #   Bare ref:  "zetabench-sac:best"  (entity/project filled from wandb.* above)
+  #   Full ref:  "<entity>/wandb-registry-model/zetabench-sac:best"
+  #              "<entity>/zeta-bench/zetabench-sac:best"
+  model_artifact: null   # wandb artifact ref (see formats above)
   model_path: null       # local .zip path (fallback when model_artifact is null)
 
   n_episodes: 100

@@ -47,41 +47,29 @@ def test_resolver_registered_and_resolves(monkeypatch):
     assert cfg.mode == "online"
 
 
-class _FakeProject:
-    """Minimal stand-in for a wandb ``Project`` (only ``.name`` is used)."""
-
-    def __init__(self, name: str):
-        self.name = name
-
-
 class _FakeApi:
     """Stand-in for ``wandb.Api`` that records calls and never hits the network."""
 
-    default_entity = "test-entity"
     instances: list["_FakeApi"] = []
 
-    #: names returned by ``projects()`` — drives the existence check.
-    existing_projects: list[str] = []
-    #: when set, ``projects()`` raises this to simulate an auth/network failure.
-    projects_raises: Exception | None = None
+    #: value returned by the ``default_entity`` property.
+    default_entity_value: str = "test-entity"
+    #: when set, ``default_entity`` raises this to simulate an auth/session error.
+    default_entity_raises: Exception | None = None
     #: when set, constructing the API raises this to simulate auth failure.
     init_raises: Exception | None = None
 
-    def __init__(self):
+    def __init__(self, api_key=None):
         if type(self).init_raises is not None:
             raise type(self).init_raises
-        self.created: list[tuple[str, str]] = []
-        self.listed: list[str] = []
+        self.api_key = api_key
         type(self).instances.append(self)
 
-    def projects(self, entity):
-        self.listed.append(entity)
-        if type(self).projects_raises is not None:
-            raise type(self).projects_raises
-        return [_FakeProject(n) for n in type(self).existing_projects]
-
-    def create_project(self, name, entity):
-        self.created.append((name, entity))
+    @property
+    def default_entity(self):
+        if type(self).default_entity_raises is not None:
+            raise type(self).default_entity_raises
+        return type(self).default_entity_value
 
 
 @pytest.fixture
@@ -90,8 +78,8 @@ def fake_api(monkeypatch):
 
     class FreshApi(_FakeApi):
         instances = []
-        existing_projects = []
-        projects_raises = None
+        default_entity_value = "test-entity"
+        default_entity_raises = None
         init_raises = None
 
     monkeypatch.setattr(wandb, "Api", FreshApi)
@@ -111,27 +99,57 @@ def test_ensure_project_skips_when_mode_forced_offline(monkeypatch, fake_api):
     assert fake_api.instances == []
 
 
-def test_ensure_project_verifies_existing(monkeypatch, fake_api):
+def test_ensure_project_returns_default_entity(monkeypatch, fake_api):
     monkeypatch.setenv("WANDB_API_KEY", "deadbeef")
-    fake_api.existing_projects = ["sandbox", "zeta-bench"]
     entity = ensure_project("zeta-bench")
     assert entity == "test-entity"
-    api = fake_api.instances[0]
-    assert api.listed == ["test-entity"]
-    assert api.created == []  # verify path: no creation
+    # Auth is verified by constructing the Api once; no project listing.
+    assert len(fake_api.instances) == 1
 
 
-def test_ensure_project_creates_when_missing(monkeypatch, fake_api):
+def test_ensure_project_uses_explicit_entity(monkeypatch, fake_api):
     monkeypatch.setenv("WANDB_API_KEY", "deadbeef")
-    fake_api.existing_projects = ["sandbox"]  # zeta-bench absent
-    entity = ensure_project("zeta-bench")
-    assert entity == "test-entity"
-    api = fake_api.instances[0]
-    assert api.created == [("zeta-bench", "test-entity")]
+    # An explicit entity is returned as-is, without resolving the default.
+    fake_api.default_entity_raises = RuntimeError("default_entity must not be read")
+    entity = ensure_project("zeta-bench", entity="my-team")
+    assert entity == "my-team"
 
 
 def test_ensure_project_raises_on_auth_failure(monkeypatch, fake_api):
     monkeypatch.setenv("WANDB_API_KEY", "deadbeef")
     fake_api.init_raises = CommError("invalid api key")
     with pytest.raises(RuntimeError, match="WANDB_API_KEY"):
+        ensure_project("zeta-bench")
+
+
+def test_ensure_project_relogins_on_expired_session(monkeypatch, fake_api):
+    # A stale session surfaces as "relogin required"; ensure_project should
+    # force a fresh login from the key and retry once, then succeed.
+    monkeypatch.setenv("WANDB_API_KEY", "deadbeef")
+    fake_api.default_entity_raises = CommError("relogin required")
+
+    calls = []
+
+    def fake_login(key, relogin):
+        calls.append((key, relogin))
+        fake_api.default_entity_raises = None  # session restored after relogin
+
+    monkeypatch.setattr(wandb, "login", fake_login)
+    monkeypatch.setattr(wandb, "teardown", lambda: None)
+
+    assert ensure_project("zeta-bench") == "test-entity"
+    assert calls == [("deadbeef", True)]
+    # The retry must authenticate explicitly with the env key so the new Api
+    # carries fresh credentials rather than the expired service session.
+    assert fake_api.instances[-1].api_key == "deadbeef"
+
+
+def test_ensure_project_relogin_retry_still_fails(monkeypatch, fake_api):
+    # If the forced relogin does not fix things, surface a clear hard error.
+    monkeypatch.setenv("WANDB_API_KEY", "deadbeef")
+    fake_api.default_entity_raises = CommError("relogin required")
+    monkeypatch.setattr(wandb, "login", lambda key, relogin: None)
+    monkeypatch.setattr(wandb, "teardown", lambda: None)
+
+    with pytest.raises(RuntimeError, match="after a forced relogin"):
         ensure_project("zeta-bench")

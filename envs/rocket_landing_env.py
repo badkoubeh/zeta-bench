@@ -108,11 +108,13 @@ class RocketLandingEnv(gym.Env):
         self._curriculum_progress: float = 0.0
 
         # Spaces
+        # float32 observations: MPS has no float64 support, and float32 is the
+        # SB3/Gymnasium convention. Internal physics stays float64 (see _build_obs).
         self.observation_space = spaces.Box(
             low=-np.inf,
             high=np.inf,
             shape=(OBS_DIM,),
-            dtype=np.float64,
+            dtype=np.float32,
         )
         self.action_space = spaces.Box(
             low=np.array([0.0, -1.0, -1.0], dtype=np.float64),
@@ -223,7 +225,7 @@ class RocketLandingEnv(gym.Env):
                 np.array([fm, fuel_remaining], dtype=np.float64),
             ]
         )
-        return self._scaler.scale(raw)
+        return self._scaler.scale(raw).astype(np.float32)
 
     def _check_termination(self) -> tuple[bool, bool, str]:
         """Return (terminated, truncated, reason)."""

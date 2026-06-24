@@ -42,20 +42,28 @@ def resolve_wandb_mode() -> str:
 
 
 def ensure_project(project: str, *, entity: str | None = None) -> str | None:
-    """Verify wandb auth and ensure ``project`` exists, creating it if missing.
+    """Verify wandb auth and resolve the target entity for an online run.
 
     A preflight guard for online runs: it authenticates the configured
-    ``WANDB_API_KEY`` and confirms the target project is reachable in the
-    resolved entity, creating it when it cannot be fetched. wandb already
-    auto-creates a project on the first ``wandb.init``, so this does not make
-    logging *possible* — its value is failing fast with a clear message when a
-    key is missing/invalid or pointed at the wrong account, rather than silently
-    logging offline or into an unexpected entity.
+    ``WANDB_API_KEY`` and resolves the entity (team/user) the run will log to.
+    wandb already auto-creates a project on the first ``wandb.init``, so this
+    does not make logging *possible* — its value is failing fast with a clear
+    message when a key is missing/invalid, rather than silently logging offline
+    or into an unexpected entity.
+
+    Auth is verified by constructing :class:`wandb.Api` with the key (which
+    validates it and raises on a bad key) and resolving the default entity. We
+    deliberately avoid ``api.projects()``/``api.create_project()``: in wandb
+    0.27.x the Public API pagination path through wandb-core spuriously fails
+    with "relogin required" even for valid credentials, while ``wandb.init``
+    logs fine and auto-creates the project. Project creation is therefore left
+    to ``wandb.init``.
 
     Parameters
     ----------
     project:
-        Project name to verify or create (e.g. ``cfg.wandb.project``).
+        Project name the run will log to (e.g. ``cfg.wandb.project``). Used for
+        logging context only; creation is handled by ``wandb.init``.
     entity:
         Target entity (team/user). Defaults to the API key's default entity.
 
@@ -69,43 +77,62 @@ def ensure_project(project: str, *, entity: str | None = None) -> str | None:
     Raises
     ------
     RuntimeError
-        If a key is present but authentication or the project operation fails.
+        If a key is present but authentication fails.
     """
     if resolve_wandb_mode() != "online" or not os.environ.get("WANDB_API_KEY"):
         _logger.debug("wandb not online or no API key; skipping project preflight")
         return None
 
     import wandb
-    from wandb.errors import Error
+
+    def _verify_auth(api_key: str | None = None) -> str:
+        # Constructing Api with the key validates it (raises on a bad key);
+        # resolving the entity confirms which account we are pointed at. This
+        # uses the lightweight viewer/default-entity path, not the broken
+        # projects() pagination.
+        api = wandb.Api(api_key=api_key) if api_key else wandb.Api()
+        return entity or api.default_entity
 
     try:
-        api = wandb.Api()
-        resolved_entity = entity or api.default_entity
-        # NB: api.project() is lazy — it constructs a Project object without
-        # querying, so it never signals a missing project. Listing projects
-        # actually hits the API, so membership here reflects reality.
-        existing = {p.name for p in api.projects(resolved_entity)}
+        resolved_entity = _verify_auth()
     except Exception as exc:  # auth / network failures surface here
-        raise RuntimeError(
-            "wandb authentication failed; check WANDB_API_KEY "
-            "(get a key at https://wandb.ai/authorize)"
-        ) from exc
-
-    if project in existing:
-        _logger.info("wandb project verified: %s/%s", resolved_entity, project)
-    else:
-        _logger.info(
-            "wandb project %s/%s not found; creating it", resolved_entity, project
-        )
-        try:
-            api.create_project(name=project, entity=resolved_entity)
-        except Error as create_exc:
+        # A cached wandb session can expire while WANDB_API_KEY is still valid;
+        # wandb-core reports this as "relogin required". Rather than abort, force
+        # a fresh login from the key and retry once before giving up. Other
+        # failures (invalid key, network) fall through to the hard error.
+        if "relogin" in str(exc).lower() and os.environ.get("WANDB_API_KEY"):
+            _logger.warning(
+                "wandb session expired (relogin required); re-authenticating "
+                "from WANDB_API_KEY and retrying"
+            )
+            try:
+                wandb.login(key=os.environ["WANDB_API_KEY"], relogin=True)
+                # The persistent wandb-core service keeps its own (now stale)
+                # session that wandb.login does not refresh; drop it so the
+                # retried Api spins up a service with fresh credentials.
+                try:
+                    wandb.teardown()
+                except Exception:  # best-effort; never mask the real error
+                    pass
+                resolved_entity = _verify_auth(api_key=os.environ["WANDB_API_KEY"])
+            except Exception as retry_exc:
+                raise RuntimeError(
+                    "wandb authentication failed after a forced relogin; "
+                    "check WANDB_API_KEY (get a key at "
+                    "https://wandb.ai/authorize)"
+                ) from retry_exc
+        else:
             raise RuntimeError(
-                f"failed to create wandb project {resolved_entity}/{project}; "
-                "check WANDB_API_KEY permissions"
-            ) from create_exc
-        _logger.info("wandb project created: %s/%s", resolved_entity, project)
+                "wandb authentication failed; check WANDB_API_KEY "
+                "(get a key at https://wandb.ai/authorize)"
+            ) from exc
 
+    _logger.info(
+        "wandb auth verified; run will log to %s/%s "
+        "(project auto-created on init if missing)",
+        resolved_entity,
+        project,
+    )
     return resolved_entity
 
 
