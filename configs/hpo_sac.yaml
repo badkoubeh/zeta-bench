@@ -13,6 +13,12 @@
 # experiments/train.py once; main() returns the best eval mean reward (see
 # _objective_from_evals), which Optuna maximizes. Trials are made unique by the
 # ``_t{job.num}`` suffix so their results/ dirs never collide.
+#
+# At the end of the sweep the Optuna sweeper writes the winning hyperparameters to
+# ``<hydra.sweep.dir>/optimization_results.yaml`` (default: multirun/<date>/<time>/).
+# Bake the best trial's algorithm params into a reusable agent config with:
+#   python experiments/export_best_params.py --agent sac
+#   python experiments/train.py agent=sac_tuned compute=kaggle_gpu   # single run, no HPO
 
 defaults:
   - train

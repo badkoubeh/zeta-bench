@@ -20,7 +20,8 @@ Action space (3-dim ``Box``):
     [1]  gimbal_pitch_command   ∈ [-1, 1]  (scaled to ±gimbal_max_rad in dynamics)
     [2]  gimbal_yaw_command     ∈ [-1, 1]
 
-Reward: hybrid dense (per step) + sparse terminal. See :mod:`envs.reward`.
+Reward: potential-based shaping (per step) + impact-aware terminal outcome.
+See :mod:`envs.reward`.
 
 Termination:
     - ``success`` — z >= 0 (touchdown at/below pad) with low velocity, tilt, ω
@@ -55,7 +56,12 @@ from dynamics.types import (
     velocity,
 )
 from envs.curriculum import Curriculum
-from envs.reward import dense_reward, terminal_reward, tilt_from_vertical
+from envs.reward import (
+    shaping_reward,
+    terminal_reward,
+    tilt_from_vertical,
+    touchdown_metrics,
+)
 from utils.normalisation import FixedObsScaler
 
 OBS_DIM: int = 17
@@ -106,6 +112,12 @@ class RocketLandingEnv(gym.Env):
         self._prev_action: Action | None = None
         self._initial_fuel: float = float(d.initial_fuel_kg)
         self._curriculum_progress: float = 0.0
+        # Discount used for potential-based reward shaping. Must match the
+        # agent's gamma for PBRS policy-invariance; falls back to 0.99 when the
+        # env is built without an agent section (e.g. some eval contexts).
+        self._gamma: float = float(
+            cfg.agent.gamma if "agent" in cfg and "gamma" in cfg.agent else 0.99
+        )
 
         # Spaces
         # float32 observations: MPS has no float64 support, and float32 is the
@@ -168,24 +180,42 @@ class RocketLandingEnv(gym.Env):
 
         action = np.clip(action.astype(np.float64), self.action_space.low, self.action_space.high)
 
-        prev_fuel = fuel_mass(self._state)
-        next_state = self._dynamics.step(self._state, action, self._dt)
+        prev_state = self._state
+        prev_fuel = fuel_mass(prev_state)
+        next_state = self._dynamics.step(prev_state, action, self._dt)
         self._state = next_state
         self._step_in_episode += 1
         self._global_step += 1
 
         terminated, truncated, reason = self._check_termination()
 
-        dense, components = dense_reward(
-            next_state, action, self._prev_action, prev_fuel, self._cfg
+        # Potential-based shaping: on terminal transitions the next-state
+        # potential is taken as 0 (absorbing-state convention) so the episode's
+        # shaping telescopes to -Phi(s_0) and the outcome is carried entirely by
+        # the terminal reward — this is what removes the old "crash early to stop
+        # accumulating penalties" incentive.
+        shaping_next = None if (terminated or truncated) else next_state
+        dense, components = shaping_reward(
+            prev_state,
+            shaping_next,
+            action,
+            self._prev_action,
+            prev_fuel,
+            self._gamma,
+            self._cfg,
         )
-        terminal = terminal_reward(reason, self._cfg) if terminated else 0.0
+        terminal = (
+            terminal_reward(reason, next_state, self._cfg)
+            if (terminated or truncated)
+            else 0.0
+        )
         components["terminal"] = terminal
         reward = float(dense + terminal)
 
         obs = self._build_obs(next_state, action)
         info: dict[str, Any] = {
             "reward_components": components,
+            "terminal_metrics": touchdown_metrics(next_state),
             "step_in_episode": self._step_in_episode,
             "global_step": self._global_step,
             "termination_reason": reason,

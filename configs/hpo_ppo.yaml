@@ -9,6 +9,11 @@
 #
 # Budget comes from the `budget` group (full default). See configs/hpo_sac.yaml
 # for how the objective + trial-unique naming work.
+#
+# At the end of the sweep the Optuna sweeper writes the winners to
+# ``<hydra.sweep.dir>/optimization_results.yaml``. Bake them into a reusable config:
+#   python experiments/export_best_params.py --agent ppo
+#   python experiments/train.py agent=ppo_tuned compute=kaggle_gpu   # single run, no HPO
 
 defaults:
   - train
