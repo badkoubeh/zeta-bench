@@ -28,6 +28,9 @@ defaults:
 
 seed: 42
 run_name: ${agent.name}_${env.dynamics.fidelity}_eval_rl_${seed}
+# Artifact evals write here by default. Local checkpoint evals are redirected by
+# experiments/evaluate_rl.py to a model-adjacent folder unless this field is
+# overridden explicitly on the CLI.
 results_dir: results/${run_name}
 
 # Weights & Biases settings used to resolve model_artifact from the registry.

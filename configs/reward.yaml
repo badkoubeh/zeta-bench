@@ -43,6 +43,10 @@ reward:
 
   # Impact-aware terminal outcome. Ordering enforced:
   #   safe landing > slow upright crash > fast tilted crash > out-of-bounds.
+  # out_of_bounds must be the WORST outcome: it sits above terminal_clip_abs so a
+  # fleeing rocket cannot make leaving the box cheaper than the worst crash. A
+  # smaller value (e.g. 300) inverts the ordering — at high impact speed a crash
+  # clips to -1000 while OOB stays -300, so the agent learns to fly out of bounds.
   terminal:
     success_bonus: 500.0
     crash_base_penalty: 100.0           # flat floor for any crash
@@ -50,7 +54,7 @@ reward:
     touchdown_tilt_weight: 80.0         # × normalised touchdown tilt^2
     touchdown_angular_rate_weight: 40.0 # × normalised touchdown angular rate^2
     touchdown_lateral_weight: 20.0      # × normalised lateral error^2
-    out_of_bounds_penalty: 300.0
+    out_of_bounds_penalty: 1200.0       # strictly worse than the worst crash (clip 1500)
     timeout_base_penalty: 50.0
     timeout_state_weight: 50.0          # × landing_cost(final state)
-    terminal_clip_abs: 1000.0           # clip |terminal| for SAC stability
+    terminal_clip_abs: 1500.0           # clip |terminal| for SAC stability
