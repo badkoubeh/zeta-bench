@@ -118,13 +118,24 @@ class PPOAgent:
             )
 
         if "results_dir" in cfg:
-            # Eval env: separate env with curriculum pinned at full difficulty so
-            # best_model.zip is selected on the hardest conditions, not training distribution.
+            # Eval env: separate env with curriculum pinned to a fixed difficulty so
+            # best_model.zip is selected consistently rather than on the (annealing)
+            # training distribution. Driven by eval_callback.curriculum_progress
+            # (default 1.0 when absent for back-compat); set to 0.0 to select on the
+            # pure-vertical regime that matches the PID baseline.
+            evalcb = cfg.get("eval_callback", None)
+            eval_progress = (
+                float(evalcb.curriculum_progress)
+                if evalcb is not None and "curriculum_progress" in evalcb
+                else 1.0
+            )
             eval_cfg = OmegaConf.merge(
-                cfg, OmegaConf.create({"env": {"curriculum": {"progress_override": 1.0}}})
+                cfg,
+                OmegaConf.create(
+                    {"env": {"curriculum": {"progress_override": eval_progress}}}
+                ),
             )
             eval_env = make_vec_env(lambda: RocketLandingEnv(eval_cfg), n_envs=1, seed=seed + 999)
-            evalcb = cfg.get("eval_callback", None)
             eval_every = int(evalcb.every_n_steps) if evalcb is not None else 50_000
             n_eval_eps = int(evalcb.n_eval_episodes) if evalcb is not None else 20
             # eval_freq is counted in vec-env steps, so scale by n_envs to keep the
