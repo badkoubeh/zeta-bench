@@ -377,6 +377,10 @@ python experiments/evaluate_rl.py agent=ppo \
     eval_rl.render=true
 ```
 
+Local checkpoint evaluations write next to the checkpoint by default, e.g.
+`results/sac_moderate_nominal_42/eval_rl_p1_seed42/summary.json`. Override
+`results_dir=...` when you want a custom output location.
+
 ### 5. Render videos and plots
 
 Both eval entry points share a `render` toggle (off by default). For the PID baseline:

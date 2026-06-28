@@ -1,27 +1,41 @@
-"""Hybrid reward function for the rocket-landing env.
+"""Control-theoretic reward function for the rocket-landing env.
 
-Dense shaping (per step) + sparse terminal (episode end). Weights come from
-``configs/reward.yaml``. The function returns a *component breakdown* alongside
-the total so the wandb callback can log each term separately (per CONTRIBUTING.md
-§Experiment Tracking).
+The reward is the negative of a physical control cost plus a terminal landing
+outcome::
 
-Dense terms (each a *penalty*, so negative-valued):
-    - distance:   ‖position‖₂                          (m)        × distance_weight
-    - velocity:   ‖velocity‖₂                          (m/s)      × velocity_weight
-    - attitude:   tilt-from-vertical                   (rad)      × attitude_weight
-    - angular_rate: ‖ω‖₂                               (rad/s)    × angular_rate_weight
-    - fuel:       fuel-burned-this-step                (kg)       × fuel_weight
-    - smoothness: ‖action − prev_action‖₂²             (-)        × smoothness_weight
+    total = shaping + terminal + regularization
 
-Sparse terminal (signed; sign chosen by config):
-    - success_bonus      on safe touchdown    (positive)
-    - crash_penalty      on hard touchdown    (negative)
-    - out_of_bounds_penalty on OOB cylinder   (negative)
+Potential-based progress shaping (PBRS)
+---------------------------------------
+The dense signal is a potential difference, NOT a raw per-step penalty::
 
-Tilt-from-vertical is computed *without* going through Euler decomposition
-(which has a singularity at the perfectly-upright pose). The body +X axis is
-rotated into the inertial frame; the angle between that and the inertial
-−Z axis (up direction in NED) is the tilt.
+    shaping(s, s') = gamma * Phi(s') - Phi(s)
+    Phi(s)         = -landing_cost(s)
+
+where ``landing_cost`` is a sum of *normalised squared* physical errors (lateral,
+altitude, speed, vertical speed, tilt, angular rate). PBRS is policy-invariant:
+the accumulated shaping over an episode telescopes to ``Phi(s_0) - gamma^T Phi(s_T)``
+regardless of how long the episode runs. That removes the failure mode of the old
+all-penalty reward, where a quick crash stopped accumulating per-step penalties and
+therefore scored *better* than a long controlled descent. Weights come from
+``configs/reward.yaml``.
+
+Terminal reward
+---------------
+Encodes the true task outcome with impact-aware crash shaping so that
+``safe landing > slow upright crash > fast tilted crash > out-of-bounds``::
+
+    success       -> +success_bonus
+    crash         -> -(base + k_speed·v̂² + k_tilt·t̂² + k_rate·ω̂² + k_lat·l̂²)
+    out_of_bounds -> -out_of_bounds_penalty
+    timeout       -> -(timeout_base + timeout_state·landing_cost(s))
+
+All component functions return a ``(total, components)`` pair so the wandb
+callback can log each term separately (per CONTRIBUTING.md §Experiment Tracking).
+
+Tilt-from-vertical is computed *without* Euler decomposition (which has a
+singularity at the upright pose): the body +X axis is rotated into the inertial
+frame and the angle to inertial −Z (up in NED) is the tilt.
 """
 from __future__ import annotations
 
@@ -58,84 +72,170 @@ def tilt_from_vertical(state: State) -> float:
     return float(np.arccos(cos_tilt))
 
 
-def dense_reward(
-    state: State,
+# --- landing cost / potential ---------------------------------------------
+
+def touchdown_metrics(state: State) -> dict[str, float]:
+    """Physical landing-quality metrics for a state (used by terminal shaping
+    and for logging). All are non-negative magnitudes.
+
+    Returns keys: ``speed`` (m/s), ``vertical_speed`` (m/s), ``tilt`` (rad),
+    ``angular_rate`` (rad/s), ``lateral`` (m), ``altitude`` (m).
+    """
+    pos = position(state)
+    vel = velocity(state)
+    return {
+        "speed": float(np.linalg.norm(vel)),
+        "vertical_speed": float(abs(vel[2])),
+        "tilt": tilt_from_vertical(state),
+        "angular_rate": float(np.linalg.norm(angular_rate(state))),
+        "lateral": float(np.linalg.norm(pos[:2])),
+        "altitude": float(abs(pos[2])),
+    }
+
+
+def landing_cost(state: State, cfg: DictConfig) -> float:
+    """Normalised physical control cost of a state — lower is more promising.
+
+    A weighted sum of squared, scale-normalised errors. Zero only at a perfect
+    landing state (on the pad, at rest, upright). Used to build the potential
+    ``Phi = -landing_cost`` and the timeout terminal cost.
+    """
+    s = cfg.reward.scales
+    p = cfg.reward.potential
+    m = touchdown_metrics(state)
+
+    lateral_n = m["lateral"] / float(s.lateral_m)
+    altitude_n = m["altitude"] / float(s.altitude_m)
+    speed_n = m["speed"] / float(s.velocity_mps)
+    vspeed_n = m["vertical_speed"] / float(s.vertical_velocity_mps)
+    tilt_n = m["tilt"] / float(s.tilt_rad)
+    rate_n = m["angular_rate"] / float(s.angular_rate_radps)
+
+    return (
+        float(p.lateral_weight) * lateral_n * lateral_n
+        + float(p.altitude_weight) * altitude_n * altitude_n
+        + float(p.velocity_weight) * speed_n * speed_n
+        + float(p.vertical_velocity_weight) * vspeed_n * vspeed_n
+        + float(p.tilt_weight) * tilt_n * tilt_n
+        + float(p.angular_rate_weight) * rate_n * rate_n
+    )
+
+
+def potential(state: State, cfg: DictConfig) -> float:
+    """Shaping potential ``Phi(state) = -landing_cost(state)``, clipped to
+    ``reward.potential.clip_abs`` for numerical stability."""
+    clip = float(cfg.reward.potential.clip_abs)
+    return float(np.clip(-landing_cost(state, cfg), -clip, clip))
+
+
+# --- dense (potential-based) shaping + regularization ---------------------
+
+def shaping_reward(
+    prev_state: State,
+    next_state: State | None,
     action: Action,
     prev_action: Action | None,
     prev_fuel_mass: float,
+    gamma: float,
     cfg: DictConfig,
 ) -> tuple[float, dict[str, float]]:
-    """Compute the per-step dense reward + component breakdown.
-
-    All terms are *signed*: positive when behaviour is desirable, negative
-    when undesirable. With the default config every dense term is a penalty
-    (negative-valued), reflecting the standard shaping convention "subtract
-    cost from value".
+    """Per-step dense reward: potential-based shaping + small regularizers.
 
     Parameters
     ----------
-    state : State
-        14-dim state vector AFTER the dynamics step.
+    prev_state : State
+        14-dim state BEFORE the dynamics step.
+    next_state : State | None
+        14-dim state AFTER the step, or ``None`` to signal a terminal
+        transition. For terminal transitions the next-state potential is taken
+        as 0 (standard PBRS absorbing-state convention), so the episode's
+        accumulated shaping telescopes to ``-Phi(s_0)`` and the outcome is
+        carried entirely by :func:`terminal_reward`.
     action : Action
         3-dim action just executed.
     prev_action : Action | None
         Previous step's action, or ``None`` on the first step.
     prev_fuel_mass : float
         Fuel mass (kg) BEFORE the step — used to compute fuel burned.
+    gamma : float
+        RL discount factor. Must match the agent's gamma for PBRS invariance.
     cfg : DictConfig
-        Composed Hydra config exposing ``reward.dense.*`` weights.
+        Composed Hydra config exposing ``reward.*``.
 
     Returns
     -------
     tuple[float, dict[str, float]]
-        ``(total_dense_reward, components_dict)`` where ``components_dict``
-        has one entry per dense term plus a sentinel for the eventual
-        terminal contribution (set to 0 here — terminal added separately
-        by the env on episode end).
+        ``(total, components)`` with keys ``shaping``, ``fuel``, ``smoothness``,
+        ``control`` (one per logged term).
     """
-    w = cfg.reward.dense
+    r = cfg.reward.regularization
 
-    distance_pen = -w.distance_weight * float(np.linalg.norm(position(state)))
-    velocity_pen = -w.velocity_weight * float(np.linalg.norm(velocity(state)))
-    attitude_pen = -w.attitude_weight * tilt_from_vertical(state)
-    angular_rate_pen = -w.angular_rate_weight * float(
-        np.linalg.norm(angular_rate(state))
-    )
+    phi_prev = potential(prev_state, cfg)
+    phi_next = 0.0 if next_state is None else potential(next_state, cfg)
+    shaping = gamma * phi_next - phi_prev
 
-    fuel_burned = max(0.0, prev_fuel_mass - fuel_mass(state))
-    fuel_pen = -w.fuel_weight * fuel_burned
+    next_fuel = prev_fuel_mass if next_state is None else fuel_mass(next_state)
+    fuel_burned = max(0.0, prev_fuel_mass - next_fuel)
+    fuel_pen = -float(r.fuel_weight) * fuel_burned
 
     if prev_action is None:
         smoothness_pen = 0.0
     else:
         diff = action - prev_action
-        smoothness_pen = -w.smoothness_weight * float(np.dot(diff, diff))
+        smoothness_pen = -float(r.smoothness_weight) * float(np.dot(diff, diff))
+
+    control_pen = -float(r.control_weight) * float(np.dot(action, action))
 
     components: dict[str, float] = {
-        "distance": distance_pen,
-        "velocity": velocity_pen,
-        "attitude": attitude_pen,
-        "angular_rate": angular_rate_pen,
+        "shaping": shaping,
         "fuel": fuel_pen,
         "smoothness": smoothness_pen,
+        "control": control_pen,
     }
     total = sum(components.values())
     return total, components
 
 
-def terminal_reward(reason: str, cfg: DictConfig) -> float:
-    """Look up the sparse terminal reward for the given termination reason.
+# --- terminal outcome ------------------------------------------------------
 
-    Returns 0.0 for unrecognised reasons (e.g. "ongoing", "timeout") so the
-    caller can blindly add it to the dense reward without special-casing.
+def terminal_reward(reason: str, state: State, cfg: DictConfig) -> float:
+    """Impact-aware terminal reward for the given termination reason.
 
-    Recognised reasons: ``"success"``, ``"crash"``, ``"out_of_bounds"``.
+    Returns 0.0 for non-terminal reasons (``"ongoing"``, ``"reset"``) so the
+    caller can blindly add it. ``"timeout"`` carries a state-quality cost.
+
+    Recognised reasons: ``"success"``, ``"crash"``, ``"out_of_bounds"``,
+    ``"timeout"``.
     """
-    s = cfg.reward.sparse
+    t = cfg.reward.terminal
+    s = cfg.reward.scales
+    clip = float(t.terminal_clip_abs)
+
     if reason == "success":
-        return float(s.success_bonus)
+        return float(np.clip(float(t.success_bonus), -clip, clip))
+
     if reason == "crash":
-        return float(s.crash_penalty)
+        m = touchdown_metrics(state)
+        speed_n = m["speed"] / float(s.velocity_mps)
+        tilt_n = m["tilt"] / float(s.tilt_rad)
+        rate_n = m["angular_rate"] / float(s.angular_rate_radps)
+        lateral_n = m["lateral"] / float(s.lateral_m)
+        penalty = (
+            float(t.crash_base_penalty)
+            + float(t.touchdown_speed_weight) * speed_n * speed_n
+            + float(t.touchdown_tilt_weight) * tilt_n * tilt_n
+            + float(t.touchdown_angular_rate_weight) * rate_n * rate_n
+            + float(t.touchdown_lateral_weight) * lateral_n * lateral_n
+        )
+        return float(np.clip(-penalty, -clip, clip))
+
     if reason == "out_of_bounds":
-        return float(s.out_of_bounds_penalty)
+        return float(np.clip(-float(t.out_of_bounds_penalty), -clip, clip))
+
+    if reason == "timeout":
+        penalty = float(t.timeout_base_penalty) + float(
+            t.timeout_state_weight
+        ) * landing_cost(state, cfg)
+        return float(np.clip(-penalty, -clip, clip))
+
     return 0.0

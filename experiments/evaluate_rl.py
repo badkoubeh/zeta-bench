@@ -40,9 +40,12 @@ resolved ``wandb.entity``/``wandb.project``, downloaded via
 
 Outputs
 -------
-- ``results/{run_name}/episodes.csv`` — one row per episode.
-- ``results/{run_name}/summary.json`` — aggregates across episodes.
-- ``results/{run_name}/plots/`` + ``results/{run_name}/video/`` — optional renders.
+- Local checkpoints default to ``<model-dir>/eval_rl_p<progress>_seed<seed>/``.
+- Artifact evals and explicit ``results_dir=...`` overrides write to
+    ``results_dir``.
+- ``episodes.csv`` — one row per episode.
+- ``summary.json`` — aggregates across episodes.
+- ``plots/`` + ``video/`` — optional renders.
 """
 
 from __future__ import annotations
@@ -53,8 +56,6 @@ from pathlib import Path
 
 import hydra
 from dotenv import load_dotenv
-
-load_dotenv()
 import numpy as np
 from numpy.typing import NDArray
 from omegaconf import DictConfig
@@ -65,6 +66,7 @@ from utils.normalisation import FixedObsScaler
 from utils.render import Trajectory, animate_side_view, plot_timeseries
 from utils.wandb_setup import register_resolvers, resolve_wandb_mode
 
+load_dotenv()
 # Register ${zeta.wandb_mode:} before Hydra composes configs/eval_rl.yaml.
 register_resolvers()
 
@@ -222,6 +224,42 @@ def _resolve_model_path(cfg: DictConfig) -> str:
     )
 
 
+def _default_results_dir(cfg: DictConfig) -> Path:
+    """Return the resolved default eval output directory for this config."""
+    return Path("results") / str(cfg.run_name)
+
+
+def _format_progress_for_path(progress: float) -> str:
+    """Render curriculum progress as a compact path-safe token."""
+    token = f"{float(progress):.3f}".rstrip("0").rstrip(".")
+    token = token.replace("-", "neg").replace(".", "p")
+    return f"p{token or '0'}"
+
+
+def _resolve_results_dir(cfg: DictConfig, model_path: str) -> Path:
+    """Choose where evaluation artefacts should be written.
+
+    Local checkpoint evals should live next to the model they testify for,
+    unless the caller explicitly overrides ``results_dir``. Artifact-based evals
+    keep the configured generic results directory because their downloaded path
+    is a wandb cache location, not a project run directory.
+    """
+    configured = Path(str(cfg.results_dir))
+    if configured != _default_results_dir(cfg):
+        return configured
+
+    has_local_model = cfg.eval_rl.get("model_path", None)
+    has_artifact_model = cfg.eval_rl.get("model_artifact", None)
+    if has_local_model and not has_artifact_model:
+        progress = _format_progress_for_path(
+            float(cfg.eval_rl.curriculum_progress)
+        )
+        dirname = f"eval_rl_{progress}_seed{int(cfg.seed)}"
+        return Path(model_path).parent / dirname
+
+    return configured
+
+
 def _load_agent(agent_name: str, model_path: str) -> object:
     """Import and load the agent class for ``agent_name``."""
     if agent_name not in _AGENTS:
@@ -372,7 +410,8 @@ def _render_best_and_worst(
 @hydra.main(config_path="../configs", config_name="eval_rl", version_base=None)
 def main(cfg: DictConfig) -> None:
     """Resolve model, build env, run n_episodes, dump CSV + JSON + stdout summary."""
-    results_dir = Path(cfg.results_dir)
+    model_path = _resolve_model_path(cfg)
+    results_dir = _resolve_results_dir(cfg, model_path)
     results_dir.mkdir(parents=True, exist_ok=True)
 
     agent_name = str(cfg.agent.name)
@@ -384,7 +423,6 @@ def main(cfg: DictConfig) -> None:
         float(cfg.eval_rl.curriculum_progress),
     )
 
-    model_path = _resolve_model_path(cfg)
     agent = _load_agent(agent_name, model_path)
 
     env = RocketLandingEnv(cfg)

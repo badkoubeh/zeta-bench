@@ -1,16 +1,60 @@
-# Reward weights — hybrid dense shaping + sparse terminal.
-# Placeholders only: targeted so |sum(dense)| ≈ |terminal| over a 1500-step episode.
+# Reward weights — control-theoretic model:
+#   total = potential-based shaping + impact-aware terminal + small regularization
+#
+#   shaping(s, s') = gamma * Phi(s') - Phi(s),   Phi(s) = -landing_cost(s)
+#
+# Potential-based shaping is policy-invariant (the accumulated shaping telescopes
+# to a constant over an episode), so it gives dense per-step gradient WITHOUT the
+# per-step penalty that previously made an early crash score better than a long
+# controlled descent. See envs/reward.py for the cost/potential definitions.
+#
+# All numbers are starting values — validate via short training runs + the
+# per-component wandb logs, then tune. Nothing here may be hardcoded in code.
 
 reward:
-  dense:
-    distance_weight: 0.005       # TODO: tune. Penalty per metre to pad.
-    velocity_weight: 0.01        # TODO: tune. Penalty per m/s of speed magnitude.
-    attitude_weight: 0.05        # TODO: tune. Penalty per radian tilt.
-    angular_rate_weight: 0.01    # TODO: tune. Penalty per rad/s.
-    fuel_weight: 0.001           # TODO: tune. Penalty per kg fuel burned.
-    smoothness_weight: 0.005     # TODO: tune. Penalty for Δaction² jerk.
+  # Physical normalisation scales. "One normalised unit" of each error is meant
+  # to be comparable across terms, so weights read as relative control costs.
+  # Anchored to the touchdown success thresholds where one exists.
+  scales:
+    lateral_m: 25.0                # ~half the OOB cylinder radius (200 m)
+    altitude_m: 60.0              # curriculum max initial altitude
+    velocity_mps: 10.0            # a few× the 2 m/s touchdown speed threshold
+    vertical_velocity_mps: 5.0    # nominal descent speed scale
+    tilt_rad: 0.0873              # = touchdown tilt threshold (5°)
+    angular_rate_radps: 0.1745    # = touchdown angular-rate threshold (~10°/s)
 
-  sparse:
-    success_bonus: 300.0
-    crash_penalty: -100.0
-    out_of_bounds_penalty: -50.0
+  # Per-term weights inside landing_cost(state) (the negative of the potential).
+  # Higher weight = the agent is pushed harder to drive that normalised error to 0.
+  potential:
+    lateral_weight: 0.5
+    altitude_weight: 0.2
+    velocity_weight: 1.0
+    vertical_velocity_weight: 1.5
+    tilt_weight: 1.0
+    angular_rate_weight: 0.5
+    clip_abs: 10.0                # clip |Phi| for numerical stability
+
+  # Secondary control regularisers. Kept small so they make an already-good
+  # landing efficient/smooth rather than discouraging necessary thrust authority.
+  regularization:
+    fuel_weight: 0.0005           # per kg fuel burned this step
+    smoothness_weight: 0.001      # per ||action - prev_action||^2 (jerk)
+    control_weight: 0.0001        # per ||action||^2 (effort)
+
+  # Impact-aware terminal outcome. Ordering enforced:
+  #   safe landing > slow upright crash > fast tilted crash > out-of-bounds.
+  # out_of_bounds must be the WORST outcome: it sits above terminal_clip_abs so a
+  # fleeing rocket cannot make leaving the box cheaper than the worst crash. A
+  # smaller value (e.g. 300) inverts the ordering — at high impact speed a crash
+  # clips to -1000 while OOB stays -300, so the agent learns to fly out of bounds.
+  terminal:
+    success_bonus: 500.0
+    crash_base_penalty: 100.0           # flat floor for any crash
+    touchdown_speed_weight: 120.0       # × normalised touchdown speed^2
+    touchdown_tilt_weight: 80.0         # × normalised touchdown tilt^2
+    touchdown_angular_rate_weight: 40.0 # × normalised touchdown angular rate^2
+    touchdown_lateral_weight: 20.0      # × normalised lateral error^2
+    out_of_bounds_penalty: 1200.0       # strictly worse than the worst crash (clip 1500)
+    timeout_base_penalty: 50.0
+    timeout_state_weight: 50.0          # × landing_cost(final state)
+    terminal_clip_abs: 1500.0           # clip |terminal| for SAC stability
