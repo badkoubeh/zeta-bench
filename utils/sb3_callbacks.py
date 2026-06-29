@@ -104,7 +104,12 @@ class WandbLoggingCallback(BaseCallback):
         if not self._wandb_active():
             return
 
-        reason = str(info.get("termination_reason", "unknown"))
+        # On auto-reset the top-level info may carry post-reset values
+        # ("termination_reason": "reset"); the true terminal outcome is then in
+        # "final_info". Prefer it so outcome one-hots reflect the real episode end.
+        final_info = info.get("final_info")
+        outcome_info = final_info if isinstance(final_info, dict) else info
+        reason = str(outcome_info.get("termination_reason", "unknown"))
         metrics: dict[str, float] = {
             "episode/curriculum_progress": self._latest_progress,
         }
@@ -113,6 +118,8 @@ class WandbLoggingCallback(BaseCallback):
             metrics[f"episode/outcome_{outcome}"] = 1.0 if reason == outcome else 0.0
 
         terminal_obs = info.get("terminal_observation")
+        if terminal_obs is None:
+            terminal_obs = info.get("final_observation")
         if terminal_obs is not None:
             raw = self._scaler.unscale(np.asarray(terminal_obs, dtype=np.float64))
             metrics["episode/touchdown_speed_mps"] = float(np.linalg.norm(raw[3:6]))

@@ -60,7 +60,7 @@ class PPOAgent:
         from stable_baselines3.common.callbacks import CallbackList, CheckpointCallback, EvalCallback
         from stable_baselines3.common.env_util import make_vec_env
 
-        from controllers._sb3_logging import WandbLoggingCallback
+        from utils.sb3_callbacks import WandbLoggingCallback
         from envs.rocket_landing_env import RocketLandingEnv
 
         cfg = self._cfg

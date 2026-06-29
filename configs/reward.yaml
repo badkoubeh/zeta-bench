@@ -38,7 +38,7 @@ reward:
   # landing efficient/smooth rather than discouraging necessary thrust authority.
   regularization:
     fuel_weight: 0.0005           # per kg fuel burned this step
-    smoothness_weight: 0.001      # per ||action - prev_action||^2 (jerk)
+    smoothness_weight: 0.0        # disabled: bang-bang/fine throttle needed for landing must not be penalized
     control_weight: 0.0001        # per ||action||^2 (effort)
 
   # Impact-aware terminal outcome. Ordering enforced:
@@ -49,12 +49,12 @@ reward:
   # clips to -1000 while OOB stays -300, so the agent learns to fly out of bounds.
   terminal:
     success_bonus: 500.0
-    crash_base_penalty: 100.0           # flat floor for any crash
-    touchdown_speed_weight: 120.0       # × normalised touchdown speed^2
-    touchdown_tilt_weight: 80.0         # × normalised touchdown tilt^2
-    touchdown_angular_rate_weight: 40.0 # × normalised touchdown angular rate^2
-    touchdown_lateral_weight: 20.0      # × normalised lateral error^2
-    out_of_bounds_penalty: 1200.0       # strictly worse than the worst crash (clip 1500)
+    crash_base_penalty: 50.0            # flat floor for any crash
+    touchdown_speed_weight: 30.0        # × normalised touchdown speed^2
+    touchdown_tilt_weight: 40.0         # × normalised touchdown tilt^2
+    touchdown_angular_rate_weight: 20.0 # × normalised touchdown angular rate^2
+    touchdown_lateral_weight: 10.0      # × normalised lateral error^2
+    out_of_bounds_penalty: 800.0        # worst outcome: above any realistic crash (~<400) and below clip
     timeout_base_penalty: 50.0
     timeout_state_weight: 50.0          # × landing_cost(final state)
-    terminal_clip_abs: 1500.0           # clip |terminal| for SAC stability
+    terminal_clip_abs: 900.0            # caps any crash well below out_of_bounds so landing always beats fleeing

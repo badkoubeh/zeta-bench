@@ -6,7 +6,7 @@ so the evaluation harness can drive any controller identically. Hyperparameters
 come from ``configs/agent/sac.yaml``; the compute profile (``configs/compute/*.yaml``)
 overrides throughput-shaping fields and selects the device.
 
-The training callback (:class:`controllers._sb3_logging.WandbLoggingCallback`)
+The training callback (:class:`utils.sb3_callbacks.WandbLoggingCallback`)
 logs every reward component, curriculum progress, and episode-level metrics to
 wandb separately from the total reward (per ``CONTRIBUTING.md`` §Experiment Tracking).
 
@@ -71,7 +71,7 @@ class SACAgent:
         from stable_baselines3.common.callbacks import CallbackList, CheckpointCallback, EvalCallback
         from stable_baselines3.common.env_util import make_vec_env
 
-        from controllers._sb3_logging import WandbLoggingCallback
+        from utils.sb3_callbacks import WandbLoggingCallback
         from envs.rocket_landing_env import RocketLandingEnv
 
         cfg = self._cfg
