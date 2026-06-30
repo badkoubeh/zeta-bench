@@ -83,7 +83,7 @@ omit = [
     # coverage gate stays meaningful on machines without torch.
     "controllers/sac_agent.py",
     "controllers/ppo_agent.py",
-    "controllers/_sb3_logging.py",
+    "utils/sb3_callbacks.py",
     # adversary lands in Phase 3
     "adversary/*",
     "experiments/*",
