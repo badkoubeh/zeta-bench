@@ -111,7 +111,7 @@ class RocketLandingEnv(gym.Env):
         self._state: State | None = None
         self._prev_action: Action | None = None
         self._initial_fuel: float = float(d.initial_fuel_kg)
-        self._curriculum_progress: float = 0.0
+        self._task_difficulty: float = 0.0
         # Discount used for potential-based reward shaping. Must match the
         # agent's gamma for PBRS policy-invariance; falls back to 0.99 when the
         # env is built without an agent section (e.g. some eval contexts).
@@ -149,9 +149,9 @@ class RocketLandingEnv(gym.Env):
         if seed is not None:
             self._rng = np.random.default_rng(seed)
 
-        self._curriculum_progress = self._curriculum.progress(self._global_step)
+        self._task_difficulty = self._curriculum.task_difficulty(self._global_step)
         pos_NED, vel_NED, quat_init, omega_init = (
-            self._curriculum.sample_initial_conditions(self._rng, self._curriculum_progress)
+            self._curriculum.sample_initial_conditions(self._rng, self._task_difficulty)
         )
 
         self._state = make_state(
@@ -166,7 +166,7 @@ class RocketLandingEnv(gym.Env):
 
         obs = self._build_obs(self._state, action=np.zeros(ACTION_DIM, dtype=np.float64))
         info: dict[str, Any] = {
-            "curriculum_progress": self._curriculum_progress,
+            "task_difficulty": self._task_difficulty,
             "termination_reason": "reset",
         }
         return obs, info
@@ -219,7 +219,7 @@ class RocketLandingEnv(gym.Env):
             "step_in_episode": self._step_in_episode,
             "global_step": self._global_step,
             "termination_reason": reason,
-            "curriculum_progress": self._curriculum_progress,
+            "task_difficulty": self._task_difficulty,
         }
 
         self._prev_action = action

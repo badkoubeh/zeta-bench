@@ -8,7 +8,7 @@ Both :class:`controllers.sac_agent.SACAgent` and
 - **Every reward component separately** (not just the scalar total), read
   from ``info["reward_components"]`` emitted by
   :meth:`envs.rocket_landing_env.RocketLandingEnv.step`.
-- **Curriculum progress** (current annealed difficulty).
+- **Curriculum task difficulty** (current annealed initial-condition difficulty).
 - **Per-episode outcome metrics**: landing-success / crash / out-of-bounds /
   timeout, touchdown velocity, and fuel used.
 
@@ -29,7 +29,7 @@ from utils.normalisation import FixedObsScaler
 
 
 class WandbLoggingCallback(BaseCallback):
-    """Log reward decomposition, curriculum progress, and episode outcomes.
+    """Log reward decomposition, curriculum task difficulty, and episode outcomes.
 
     Component rewards are accumulated and logged as running means every
     ``log_freq`` environment steps to keep wandb traffic bounded on long
@@ -56,7 +56,7 @@ class WandbLoggingCallback(BaseCallback):
         self._comp_sums: dict[str, float] = defaultdict(float)
         self._comp_count: int = 0
         self._steps_since_flush: int = 0
-        self._latest_progress: float = 0.0
+        self._latest_task_difficulty: float = 0.0
 
     def _wandb_active(self) -> bool:
         """True when a wandb run is live (skip logging in tests / dry runs)."""
@@ -72,8 +72,8 @@ class WandbLoggingCallback(BaseCallback):
                 for key, value in components.items():
                     self._comp_sums[key] += float(value)
                 self._comp_count += 1
-            if "curriculum_progress" in info:
-                self._latest_progress = float(info["curriculum_progress"])
+            if "task_difficulty" in info:
+                self._latest_task_difficulty = float(info["task_difficulty"])
 
             done = bool(dones[i]) if i < len(dones) else False
             if done:
@@ -92,7 +92,7 @@ class WandbLoggingCallback(BaseCallback):
                 f"reward/{key}": total / self._comp_count
                 for key, total in self._comp_sums.items()
             }
-            metrics["curriculum/progress"] = self._latest_progress
+            metrics["curriculum/task_difficulty"] = self._latest_task_difficulty
             wandb.log(metrics, step=self.num_timesteps)
 
         self._comp_sums.clear()
@@ -111,7 +111,7 @@ class WandbLoggingCallback(BaseCallback):
         outcome_info = final_info if isinstance(final_info, dict) else info
         reason = str(outcome_info.get("termination_reason", "unknown"))
         metrics: dict[str, float] = {
-            "episode/curriculum_progress": self._latest_progress,
+            "episode/task_difficulty": self._latest_task_difficulty,
         }
         # One-hot the outcome so wandb can plot per-outcome rolling rates.
         for outcome in ("success", "crash", "out_of_bounds", "timeout"):
