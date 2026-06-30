@@ -10,7 +10,7 @@ CLI examples
 ------------
     python experiments/evaluate_pid.py
     python experiments/evaluate_pid.py seed=7 eval_pid.n_episodes=20
-    python experiments/evaluate_pid.py eval_pid.curriculum_progress=0.5
+    python experiments/evaluate_pid.py eval_pid.task_difficulty=0.5
 
 Outputs
 -------
@@ -242,10 +242,10 @@ def main(cfg: DictConfig) -> None:
 
     logger.info("run_name=%s results_dir=%s", cfg.run_name, results_dir)
     logger.info(
-        "n_episodes=%d seed=%d curriculum_progress=%.3f",
+        "n_episodes=%d seed=%d task_difficulty=%.3f",
         int(cfg.eval_pid.n_episodes),
         int(cfg.seed),
-        float(cfg.eval_pid.curriculum_progress),
+        float(cfg.eval_pid.task_difficulty),
     )
 
     env = RocketLandingEnv(cfg)
