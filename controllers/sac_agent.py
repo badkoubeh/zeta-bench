@@ -54,6 +54,29 @@ class SACAgent:
             return "cpu"
         return requested
 
+    @staticmethod
+    def _find_replay_buffer(checkpoint: "object") -> "object | None":
+        """Locate a saved replay buffer next to ``checkpoint`` (a ``Path``).
+
+        Prefers a sibling ``replay_buffer.pkl`` (written at end of training),
+        otherwise the most recent ``*replay_buffer*.pkl`` in the same folder.
+        Returns the ``Path`` to use, or ``None`` when no buffer is available
+        (e.g. resuming from an ``EvalCallback`` ``best_model.zip`` in a run that
+        predates buffer persistence).
+        """
+        from pathlib import Path
+
+        ckpt = Path(checkpoint)
+        sibling = ckpt.parent / "replay_buffer.pkl"
+        if sibling.exists():
+            return sibling
+        candidates = sorted(
+            ckpt.parent.glob("*replay_buffer*.pkl"),
+            key=lambda p: p.stat().st_mtime,
+            reverse=True,
+        )
+        return candidates[0] if candidates else None
+
     def learn(self, env: object, total_steps: int) -> None:
         """Train against ``env`` for ``total_steps`` environment steps.
 
@@ -95,8 +118,31 @@ class SACAgent:
 
         resume_from = cfg.get("resume_from", None)
         if resume_from:
+            from pathlib import Path
+
             logger.info("resuming SAC from checkpoint %s", resume_from)
             self._model = SAC.load(str(resume_from), env=vec_env, device=device)
+
+            # SAC.load restores only the policy/optimizer state — the replay
+            # buffer is saved separately. Without it, num_timesteps is already
+            # past learning_starts, so the first learn() step runs gradient
+            # updates against an empty buffer and destroys the loaded policy.
+            # Restore the buffer if one sits next to the checkpoint; otherwise
+            # force a fresh warmup so SAC re-collects transitions before any
+            # gradient updates.
+            buffer_path = self._find_replay_buffer(Path(str(resume_from)))
+            if buffer_path is not None:
+                logger.info("restoring replay buffer from %s", buffer_path)
+                self._model.load_replay_buffer(str(buffer_path))
+            else:
+                warmup = int(self._model.num_timesteps) + int(a.learning_starts)
+                logger.warning(
+                    "no replay buffer found next to %s; forcing a %d-step warmup "
+                    "before gradient updates to avoid empty-buffer policy collapse",
+                    resume_from,
+                    int(a.learning_starts),
+                )
+                self._model.learning_starts = warmup
         else:
             self._model = SAC(
                 policy=str(a.policy),
@@ -192,7 +238,10 @@ class SACAgent:
         if "results_dir" in cfg:
             final_path = f"{cfg.results_dir}/model"
             self._model.save(final_path)
-            logger.info("saved final SAC model to %s.zip", final_path)
+            # Persist the replay buffer so a later run can resume_from this
+            # checkpoint with a warm buffer instead of collapsing / re-warming.
+            self._model.save_replay_buffer(f"{cfg.results_dir}/replay_buffer")
+            logger.info("saved final SAC model to %s.zip (+ replay_buffer.pkl)", final_path)
 
     def predict(self, obs: np.ndarray, deterministic: bool = True) -> np.ndarray:
         """Compute a 3-dim action from a 17-dim observation."""
