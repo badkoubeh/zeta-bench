@@ -52,9 +52,9 @@ eval_rl:
 
   n_episodes: 100
 
-  # Pin curriculum progress for evaluation. 1.0 = full difficulty envelope
+  # Pin task difficulty for evaluation. 1.0 = full difficulty envelope
   # (matches the EvalCallback env used during training for consistent comparison).
-  curriculum_progress: 1.0
+  task_difficulty: 1.0
 
   # When true, write time-series PNG + 2D side-view MP4 for best and worst episodes.
   render: false
@@ -69,7 +69,8 @@ eval_rl:
     sensor_noise_sigma: 0.0
     actuator_delay_steps: 0
 
-# Wire the curriculum override into the env module.
+# Wire the pinned task difficulty into the curriculum (fixed schedule holds it).
 env:
   curriculum:
-    progress_override: ${eval_rl.curriculum_progress}
+    schedule: fixed
+    task_difficulty: ${eval_rl.task_difficulty}
