@@ -40,7 +40,7 @@ resolved ``wandb.entity``/``wandb.project``, downloaded via
 
 Outputs
 -------
-- Local checkpoints default to ``<model-dir>/eval_rl_p<progress>_seed<seed>/``.
+- Local checkpoints default to ``<model-dir>/eval_rl_td<task_difficulty>_seed<seed>/``.
 - Artifact evals and explicit ``results_dir=...`` overrides write to
     ``results_dir``.
 - ``episodes.csv`` — one row per episode.
@@ -229,11 +229,11 @@ def _default_results_dir(cfg: DictConfig) -> Path:
     return Path("results") / str(cfg.run_name)
 
 
-def _format_progress_for_path(progress: float) -> str:
-    """Render curriculum progress as a compact path-safe token."""
-    token = f"{float(progress):.3f}".rstrip("0").rstrip(".")
+def _format_task_difficulty_for_path(task_difficulty: float) -> str:
+    """Render task difficulty as a compact path-safe token."""
+    token = f"{float(task_difficulty):.3f}".rstrip("0").rstrip(".")
     token = token.replace("-", "neg").replace(".", "p")
-    return f"p{token or '0'}"
+    return f"td{token or '0'}"
 
 
 def _resolve_results_dir(cfg: DictConfig, model_path: str) -> Path:
@@ -251,10 +251,10 @@ def _resolve_results_dir(cfg: DictConfig, model_path: str) -> Path:
     has_local_model = cfg.eval_rl.get("model_path", None)
     has_artifact_model = cfg.eval_rl.get("model_artifact", None)
     if has_local_model and not has_artifact_model:
-        progress = _format_progress_for_path(
-            float(cfg.eval_rl.curriculum_progress)
+        task_difficulty = _format_task_difficulty_for_path(
+            float(cfg.eval_rl.task_difficulty)
         )
-        dirname = f"eval_rl_{progress}_seed{int(cfg.seed)}"
+        dirname = f"eval_rl_{task_difficulty}_seed{int(cfg.seed)}"
         return Path(model_path).parent / dirname
 
     return configured
@@ -417,10 +417,10 @@ def main(cfg: DictConfig) -> None:
     agent_name = str(cfg.agent.name)
     logger.info("run_name=%s agent=%s results_dir=%s", cfg.run_name, agent_name, results_dir)
     logger.info(
-        "n_episodes=%d seed=%d curriculum_progress=%.3f",
+        "n_episodes=%d seed=%d task_difficulty=%.3f",
         int(cfg.eval_rl.n_episodes),
         int(cfg.seed),
-        float(cfg.eval_rl.curriculum_progress),
+        float(cfg.eval_rl.task_difficulty),
     )
 
     agent = _load_agent(agent_name, model_path)

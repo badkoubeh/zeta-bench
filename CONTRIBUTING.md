@@ -106,8 +106,27 @@ Hybrid: dense shaping every step + sparse terminal bonus/penalty.
 All coefficients in `configs/reward.yaml` — never hardcode reward weights.
 
 ### Curriculum
-Automatic difficulty annealing over training progress (0.0 → 1.0).
-Drop height, wind budget, adversary weight all anneal via config-driven scheduler.
+Automatic **task-difficulty** annealing: `task_difficulty ∈ [0, 1]` ramps via a
+config-driven scheduler (`env.curriculum.schedule: linear | fixed`). It widens the
+**initial-condition envelope only** (drop height, lateral offset, descent speed) — it does
+NOT scale disturbances or adversary weight (those are the separate `disturbance_severity`
+and adversarial axes). See "Naming conventions" below.
+
+### Naming conventions (difficulty vs. severity vs. long tail)
+Keep these axes distinct in code, configs, and prose (prior art in parentheses):
+- **`task_difficulty ∈ [0, 1]`** — hardness of the *nominal* task (the initial-condition
+  envelope); the training curriculum scalar, initial conditions only (legged_gym / Isaac Lab).
+- **`disturbance_severity`** — *magnitude* of an external disturbance, graduated on the
+  comparable matrix; per perturbation target — exogenous force / state / action / parameter
+  (Hendrycks ImageNet-C `severity`; safe-control-gym; realworldrl_suite).
+- **`rare_event`** — long-tail / "curse of rarity": rare, extreme events keyed by occurrence
+  *probability* + extreme magnitude — a SEPARATE axis from severity, not its maximum.
+- **adversarial** — learned worst-case disturbance; reported separately, never in the
+  comparable matrix.
+
+`task_difficulty` is implemented; `disturbance_severity` and `rare_event` are reserved
+vocabulary for the (not-yet-built) disturbance matrix. Do not reuse "difficulty" for
+disturbances; `fidelity` is a modeling choice, not a difficulty.
 
 ---
 
@@ -219,7 +238,7 @@ Config files:
 
 All runs logged to wandb. Required logged values:
 - Every reward component separately (not just total reward)
-- Curriculum progress (current difficulty level)
+- Curriculum task difficulty (current annealed level; `curriculum/task_difficulty`)
 - Adversary loss alongside agent loss
 - Episode metrics: landing success, touchdown velocity, fuel used
 - Evaluation metrics: robustness matrix results

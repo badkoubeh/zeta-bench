@@ -4,6 +4,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 from hydra import compose, initialize
+from omegaconf import OmegaConf
 
 from envs.curriculum import Curriculum
 from dynamics.types import UPRIGHT_QUAT
@@ -15,40 +16,65 @@ def cfg():
         return compose(config_name="train")
 
 
-def test_progress_at_zero(cfg) -> None:
-    """At step 0, curriculum progress is exactly 0."""
+def test_task_difficulty_at_zero(cfg) -> None:
+    """At step 0, task difficulty is exactly 0 under the linear schedule."""
     c = Curriculum(cfg)
-    assert c.progress(0) == 0.0
+    assert c.task_difficulty(0) == 0.0
 
 
-def test_progress_at_anneal_steps(cfg) -> None:
-    """At step == anneal_steps, progress is exactly 1.0."""
+def test_task_difficulty_at_anneal_steps(cfg) -> None:
+    """At step == anneal_steps, task difficulty is exactly 1.0."""
     c = Curriculum(cfg)
-    assert c.progress(cfg.env.curriculum.anneal_steps) == 1.0
+    assert c.task_difficulty(cfg.env.curriculum.anneal_steps) == 1.0
 
 
-def test_progress_clamps_above_full(cfg) -> None:
-    """Beyond anneal_steps, progress remains clamped at 1.0 (doesn't
+def test_task_difficulty_clamps_above_full(cfg) -> None:
+    """Beyond anneal_steps, task difficulty remains clamped at 1.0 (doesn't
     overshoot — curriculum holds at max difficulty).
     """
     c = Curriculum(cfg)
-    assert c.progress(int(cfg.env.curriculum.anneal_steps * 10)) == 1.0
+    assert c.task_difficulty(int(cfg.env.curriculum.anneal_steps * 10)) == 1.0
 
 
-def test_progress_lerp_midpoint(cfg) -> None:
-    """At step == anneal_steps / 2, progress is exactly 0.5 (linear lerp)."""
+def test_task_difficulty_lerp_midpoint(cfg) -> None:
+    """At step == anneal_steps / 2, task difficulty is exactly 0.5 (linear lerp)."""
     c = Curriculum(cfg)
     mid = int(cfg.env.curriculum.anneal_steps // 2)
-    assert np.isclose(c.progress(mid), 0.5, atol=1e-9)
+    assert np.isclose(c.task_difficulty(mid), 0.5, atol=1e-9)
+
+
+def test_fixed_schedule_pins_task_difficulty(cfg) -> None:
+    """Under schedule=fixed the configured task_difficulty is held regardless of
+    the step argument — the eval / model-selection path that replaced the old
+    progress_override knob.
+    """
+    fixed_cfg = OmegaConf.merge(
+        cfg,
+        OmegaConf.create(
+            {"env": {"curriculum": {"schedule": "fixed", "task_difficulty": 0.42}}}
+        ),
+    )
+    c = Curriculum(fixed_cfg)
+    assert c.task_difficulty(0) == 0.42
+    assert c.task_difficulty(10_000_000) == 0.42
+
+
+def test_invalid_schedule_raises(cfg) -> None:
+    """An unknown schedule value is rejected at construction."""
+    bad_cfg = OmegaConf.merge(
+        cfg, OmegaConf.create({"env": {"curriculum": {"schedule": "sigmoid"}}})
+    )
+    with pytest.raises(ValueError):
+        Curriculum(bad_cfg)
 
 
 def test_initial_conditions_at_easy_difficulty(cfg) -> None:
-    """At progress=0, lateral offsets are exactly 0, descent velocity is at
+    """At task_difficulty=0, lateral offsets are exactly 0, descent velocity is at
     its minimum, altitude is at its minimum, attitude is upright.
     """
     c = Curriculum(cfg)
     rng = np.random.default_rng(seed=42)
-    pos, vel, quat, omega = c.sample_initial_conditions(rng, progress=0.0)
+    pos, vel, quat, omega = c.sample_initial_conditions(rng, task_difficulty=0.0)
 
     # Lateral offsets zero
     assert pos[0] == 0.0
@@ -66,10 +92,10 @@ def test_initial_conditions_at_easy_difficulty(cfg) -> None:
 
 
 def test_initial_conditions_at_full_difficulty(cfg) -> None:
-    """At progress=1, sampled values fall within the full configured envelope."""
+    """At task_difficulty=1, sampled values fall within the full configured envelope."""
     c = Curriculum(cfg)
     rng = np.random.default_rng(seed=123)
-    pos, vel, _, _ = c.sample_initial_conditions(rng, progress=1.0)
+    pos, vel, _, _ = c.sample_initial_conditions(rng, task_difficulty=1.0)
 
     init = cfg.env.init_conditions
     # Lateral within full envelope

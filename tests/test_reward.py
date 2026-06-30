@@ -131,14 +131,21 @@ def test_shaping_negative_when_state_degrades(cfg) -> None:
 
 
 def test_shaping_fuel_and_control_penalise(cfg) -> None:
-    """Fuel burn, action jerk, and control effort are all small penalties."""
+    """Active regularizers are small penalties: control effort and fuel burn are
+    negative. The smoothness term tracks its configured weight (currently
+    disabled in reward.yaml, so it is exactly 0)."""
     s = _state_at()
     prev = np.zeros(3)
     curr = np.array([1.0, 1.0, 1.0])
     _, comps = shaping_reward(s, s, curr, prev, prev_fuel_mass=5000.0, gamma=GAMMA, cfg=cfg)
-    # 0 kg burned here (fuel unchanged), so fuel == 0; smoothness & control < 0.
-    assert comps["smoothness"] < 0.0
+    # Control effort is penalised (control_weight > 0). No fuel burned here, so fuel == 0.
     assert comps["control"] < 0.0
+    # Smoothness follows its config weight: penalty = -w * ||action - prev_action||^2
+    # (w = 0 disables it; this assertion holds whether or not it is re-enabled).
+    diff = curr - prev
+    expected_smoothness = -float(cfg.reward.regularization.smoothness_weight) * float(diff @ diff)
+    assert comps["smoothness"] == pytest.approx(expected_smoothness)
+    assert comps["smoothness"] <= 0.0
     s2 = _state_at(fuel=4900.0)
     _, comps2 = shaping_reward(s, s2, curr, prev, prev_fuel_mass=5000.0, gamma=GAMMA, cfg=cfg)
     assert comps2["fuel"] < 0.0

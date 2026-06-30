@@ -275,7 +275,7 @@ environment, flies the cascaded PID controller, and writes per-episode metrics.
 ```bash
 python experiments/evaluate_pid.py                                  # 20 episodes, full envelope
 python experiments/evaluate_pid.py seed=7 eval_pid.n_episodes=20    # more episodes, different seed
-python experiments/evaluate_pid.py eval_pid.curriculum_progress=0.0 # easiest envelope (low drop, no lateral offset)
+python experiments/evaluate_pid.py eval_pid.task_difficulty=0.0     # easiest envelope (low drop, no lateral offset)
 make eval-pid SEED=42                                               # Makefile shortcut (runs locally)
 ```
 
@@ -449,7 +449,7 @@ in `configs/` — these are the common ones.
 | `eval_pid.render=` / `eval_rl.render=` | `false` | write best/worst-episode PNG plots + MP4 video |
 | `eval_pid.render_fps=` / `eval_rl.render_fps=` | `50` | set rendered-video frame rate |
 | `eval_pid.n_episodes=` / `eval_rl.n_episodes=` | `20` / `100` | number of evaluation episodes |
-| `eval_pid.curriculum_progress=` / `eval_rl.curriculum_progress=` | `1.0` | pin difficulty (`0.0` easiest … `1.0` full envelope) |
+| `eval_pid.task_difficulty=` / `eval_rl.task_difficulty=` | `1.0` | pin task difficulty (`0.0` easiest … `1.0` full envelope) |
 | `eval_rl.model_path=` | `null` | evaluate a local checkpoint `.zip` |
 | `eval_rl.model_artifact=` | `null` | evaluate a checkpoint pulled from the W&B registry |
 
@@ -470,7 +470,7 @@ any parameter at the command line:
 ```bash
 # PID eval:
 python experiments/evaluate_pid.py eval_pid.n_episodes=20
-python experiments/evaluate_pid.py eval_pid.curriculum_progress=0.5
+python experiments/evaluate_pid.py eval_pid.task_difficulty=0.5
 python experiments/evaluate_pid.py seed=123
 
 # Training (any dotted path is overridable):

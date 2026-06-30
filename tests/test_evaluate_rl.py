@@ -23,7 +23,7 @@ def _cfg(
             "eval_rl": {
                 "model_path": model_path,
                 "model_artifact": model_artifact,
-                "curriculum_progress": 0.0,
+                "task_difficulty": 0.0,
             },
         }
     )
@@ -37,7 +37,7 @@ def test_local_checkpoint_eval_defaults_next_to_model() -> None:
 
     assert _resolve_results_dir(
         cfg, "results/sac_vertical_brake_oob_m4_42/best_model.zip"
-    ) == Path("results/sac_vertical_brake_oob_m4_42/eval_rl_p0_seed42")
+    ) == Path("results/sac_vertical_brake_oob_m4_42/eval_rl_td0_seed42")
 
 
 def test_explicit_results_dir_override_wins() -> None:

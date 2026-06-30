@@ -7,7 +7,7 @@ come from ``configs/agent/sac.yaml``; the compute profile (``configs/compute/*.y
 overrides throughput-shaping fields and selects the device.
 
 The training callback (:class:`utils.sb3_callbacks.WandbLoggingCallback`)
-logs every reward component, curriculum progress, and episode-level metrics to
+logs every reward component, curriculum task difficulty, and episode-level metrics to
 wandb separately from the total reward (per ``CONTRIBUTING.md`` §Experiment Tracking).
 
 Stable-Baselines3 and torch are imported **lazily** inside :meth:`learn` /
@@ -178,19 +178,26 @@ class SACAgent:
         if "results_dir" in cfg:
             # Eval env: separate env with curriculum pinned to a fixed difficulty so
             # best_model.zip is selected consistently rather than on the (annealing)
-            # training distribution. Driven by eval_callback.curriculum_progress
+            # training distribution. Driven by eval_callback.task_difficulty
             # (default 1.0 when absent for back-compat); set to 0.0 to select on the
             # pure-vertical regime that matches the PID baseline.
             evalcb = cfg.get("eval_callback", None)
-            eval_progress = (
-                float(evalcb.curriculum_progress)
-                if evalcb is not None and "curriculum_progress" in evalcb
+            eval_task_difficulty = (
+                float(evalcb.task_difficulty)
+                if evalcb is not None and "task_difficulty" in evalcb
                 else 1.0
             )
             eval_cfg = OmegaConf.merge(
                 cfg,
                 OmegaConf.create(
-                    {"env": {"curriculum": {"progress_override": eval_progress}}}
+                    {
+                        "env": {
+                            "curriculum": {
+                                "schedule": "fixed",
+                                "task_difficulty": eval_task_difficulty,
+                            }
+                        }
+                    }
                 ),
             )
             eval_env = make_vec_env(lambda: RocketLandingEnv(eval_cfg), n_envs=1, seed=seed + 999)
