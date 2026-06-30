@@ -23,13 +23,13 @@ def test_env_constructs_without_error(cfg) -> None:
 
 
 def test_reset_returns_valid_obs_and_info(cfg) -> None:
-    """reset() returns a 17-dim obs and an info dict carrying curriculum progress."""
+    """reset() returns a 17-dim obs and an info dict carrying task difficulty."""
     env = RocketLandingEnv(cfg)
     obs, info = env.reset(seed=42)
     assert obs.shape == (OBS_DIM,)
     assert obs.dtype == np.float32
-    assert "curriculum_progress" in info
-    assert 0.0 <= info["curriculum_progress"] <= 1.0
+    assert "task_difficulty" in info
+    assert 0.0 <= info["task_difficulty"] <= 1.0
 
 
 def test_reset_with_seed_is_deterministic(cfg) -> None:
