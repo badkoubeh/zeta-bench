@@ -56,28 +56,123 @@ rocket environment is the worked example to follow.
 
 ## Key Results
 
-<!-- Fill in after Phase 3 -->
+> **Status (2026-07-01).** The numbers below cover all three controllers —
+> the PID baseline (`pid_moderate_eval`), and the curriculum-trained
+> vertical-descent agents SAC (`sac_vertical_v13`) and PPO
+> (`ppo_vertical_v4`), both γ=0.999 — under **nominal** conditions across
+> graduated task difficulty. All results share one eval protocol
+> (100 episodes/cell, seed 42, touchdown threshold 3.0 m/s) so the three
+> controllers are directly comparable.
 
-### Landing Success Rate (Nominal Conditions)
+### Landing Success Rate vs Task Difficulty (SAC, nominal)
 
-| Controller | Success Rate | Touchdown Velocity (m/s) | Fuel Consumed (%) |
+`task_difficulty` linearly anneals the initial-condition envelope from a
+near-vertical ~30 m drop (`0.0`) toward a 60 m, 20 m/s, ±50 m off-pad approach
+(`1.0`). 100 episodes per cell, seed 42, touchdown threshold 3.0 m/s, 5000 kg
+landing-burn reserve. The agent was trained up to task_difficulty 0.3; levels beyond
+that probe its zero-shot generalization to harder, unseen approaches.
+
+| Task difficulty [0,1] | Success | Crash | OOB | Touchdown (m/s) | Fuel used (%) | Episode len |
+|---|---|---|---|---|---|---|
+| 0.0 (near-vertical) | **100%** | 0 | 0 | 2.18 | 11% | 257 |
+| 0.1 | **100%** | 0 | 0 | 2.25 | 11% | 251 |
+| 0.2 | **100%** | 0 | 0 | 2.26 | 12% | 254 |
+| 0.3 (train ceiling) | **100%** | 0 | 0 | 2.28 | 12% | 258 |
+| 0.4 | 99% | 1 | 0 | 2.29 | 12% | 263 |
+| 0.5 | 92% | 8 | 0 | 2.35 | 13% | 271 |
+| 0.6 | 84% | 15 | 1 | 3.91 | 14% | 280 |
+| 0.8 | 60% | 40 | 0 | 7.69 | 15% | 289 |
+| 1.0 (hardest) | 52% | 46 | 2 | 10.27 | 16% | 310 |
+
+The agent is **100% within its training envelope (≤0.3)** and degrades
+gracefully beyond it — still ≥92% at 0.5 and 84% at 0.6 despite never training
+there. Failures past the breaking point are **soft-braking crashes** (touchdown
+speed rises to 7–10 m/s), not the catastrophic fly-out that capped earlier runs:
+out-of-bounds stays ≤2/100 at every level.
+
+**What moved the needle.** Raising the discount factor from γ=0.99 to **γ=0.999**
+— so the effective horizon (~1000 steps) exceeds typical episode length — made
+the terminal landing / out-of-bounds reward visible to the optimizer and
+eliminated a fly-up→out-of-bounds local optimum that capped earlier runs. A
+staged curriculum warm-start (v11 @0.1 → v12 @0.2 → v13 @0.3) then lifted
+success and produced markedly more efficient trajectories:
+
+| Metric @ task_difficulty 0.2 | v11 (trained @0.1) | v12 (trained @0.2) | v13 (trained @0.3) |
 |---|---|---|---|
-| PID Baseline | — | — | — |
-| PPO | — | — | — |
-| SAC (nominal) | — | — | — |
-| SAC (adversarial) | — | — | — |
+| Success rate | 60% | 89% | **100%** |
+| Out-of-bounds | 0% | 0% | **0%** |
+| Touchdown speed | 3.09 m/s | 2.76 m/s | **2.26 m/s** |
+| Episode length | 1178 | 341 | **254** |
+| Fuel used | 49% | 15% | **12%** |
 
-### Robustness Matrix — Success Rate Under Disturbance
+### PPO (nominal)
 
-<!-- Fill in from results/robustness_matrix.csv after Phase 3 -->
+PPO was trained with the identical γ=0.999 fix and the same staged
+curriculum warm-start ladder (v1 @0.0 → v2 @0.1 → v3 @0.2 → v4 @0.3),
+using the same evaluation protocol as SAC.
 
-| Disturbance | PID | PPO | SAC Nominal | SAC Adversarial |
-|---|---|---|---|---|
-| Wind 5 m/s | — | — | — | — |
-| Wind 10 m/s | — | — | — | — |
-| Mass +20% | — | — | — | — |
-| Sensor noise σ=0.1 | — | — | — | — |
-| Combined (max) | — | — | — | — |
+| Task difficulty [0,1] | Success | Crash | OOB | Touchdown (m/s) | Fuel used (%) | Episode len |
+|---|---|---|---|---|---|---|
+| 0.0 (near-vertical) | **100%** | 0 | 0 | 2.17 | 13% | 299 |
+| 0.1 | **100%** | 0 | 0 | 2.16 | 14% | 305 |
+| 0.2 | **100%** | 0 | 0 | 2.07 | 14% | 312 |
+| 0.3 (train ceiling) | **100%** | 0 | 0 | 1.94 | 15% | 321 |
+| 0.4 | 97% | 2 | 1 | 1.80 | 16% | 350 |
+| 0.5 | 88% | 1 | 11 | 1.83 | 24% | 551 |
+| 0.6 | 74% | 2 | 24 | 2.13 | 34% | 800 |
+| 0.8 | 52% | 3 | 45 | 2.70 | 50% | 1211 |
+| 1.0 (hardest) | 41% | 5 | 52 | 3.62 | 57% | 1386 |
+
+### PID baseline (nominal)
+
+The classical PID controller has **fixed gains** — no training, no curriculum.
+Evaluated on the same protocol, its profile is the mirror image of the RL
+agents: every failure is a **touchdown-speed crash** (0 out-of-bounds, 0
+timeout at every level). On the easy short-drop approaches it cannot bleed
+below the 3.0 m/s gate (3.55 m/s at 0.0), but the taller full-envelope
+approaches give it the vertical distance to settle to 2.10 m/s.
+
+| Task difficulty [0,1] | Success | Crash | OOB | Touchdown (m/s) | Fuel used (%) | Episode len |
+|---|---|---|---|---|---|---|
+| 0.0 (near-vertical) | 0% | 100 | 0 | 3.55 | 11% | 264 |
+| 0.1 | 7% | 93 | 0 | 3.22 | 13% | 284 |
+| 0.2 | 58% | 42 | 0 | 2.94 | 14% | 308 |
+| 0.3 | 75% | 25 | 0 | 2.71 | 15% | 336 |
+| 0.4 | 81% | 19 | 0 | 2.53 | 17% | 367 |
+| 0.5 | 86% | 14 | 0 | 2.41 | 18% | 400 |
+| 0.6 | 92% | 8 | 0 | 2.31 | 20% | 435 |
+| 0.8 | 97% | 3 | 0 | 2.18 | 23% | 509 |
+| 1.0 (hardest) | **99%** | 1 | 0 | 2.10 | 26% | 586 |
+
+### PID vs SAC vs PPO (nominal, matched conditions)
+
+The two families have **opposite difficulty profiles**, and they cross over
+around task difficulty 0.5–0.6:
+
+- **RL agents (SAC, PPO)** are curriculum-trained from the vertical regime up
+  to 0.3, so they are perfect (100%) inside their training envelope and
+  degrade on the harder, unseen approaches. Their out-of-region failures are
+  fly-up **out-of-bounds** (PPO) or **soft-braking crashes** (SAC).
+- **PID** is fixed-gain and untuned for the short easy drop, so it is weakest
+  at low difficulty and strongest at the full envelope — all failures are
+  touchdown-speed crashes, never loss-of-control.
+
+| Task difficulty [0,1] | PID success | SAC success | PPO success |
+|---|---|---|---|
+| 0.0 | 0% | **100%** | **100%** |
+| 0.1 | 7% | **100%** | **100%** |
+| 0.2 | 58% | **100%** | **100%** |
+| 0.3 | 75% | **100%** | **100%** |
+| 0.4 | 81% | **99%** | 97% |
+| 0.5 | 86% | 92% | 88% |
+| 0.6 | **92%** | 84% | 74% |
+| 0.8 | **97%** | 60% | 52% |
+| 1.0 | **99%** | 52% | 41% |
+
+The RL agents win decisively below the crossover (the precision-landing regime
+the curriculum targets); PID wins on the high-energy approaches it was tuned
+for. Extending the RL curriculum past 0.3 is the clear lever to close the
+high-difficulty gap.
 
 ---
 
@@ -196,9 +291,12 @@ covering:
 Every controller faces an identical, fixed-seed disturbance matrix. Conditions
 are held constant across controllers so results are directly comparable and
 reproducible. This is the primary evaluation path and produces the signature
-robustness heatmap (disturbance type × magnitude × success rate).
+robustness heatmap (disturbance type × severity × success rate). Each row below
+is graduated by `disturbance_severity` — the magnitude axis of an external
+disturbance, kept distinct from `task_difficulty` (the nominal initial-condition
+envelope).
 
-| Disturbance | Levels tested |
+| Disturbance | Severity levels tested |
 |---|---|
 | Wind | 0, 2, 5, 10 m/s × N/E/S/W/diagonal |
 | Mass uncertainty | payload offset −20 % to +20 % |

@@ -120,26 +120,19 @@ class PPOAgent:
         if "results_dir" in cfg:
             # Eval env: separate env with curriculum pinned to a fixed difficulty so
             # best_model.zip is selected consistently rather than on the (annealing)
-            # training distribution. Driven by eval_callback.task_difficulty
+            # training distribution. Driven by eval_callback.curriculum_progress
             # (default 1.0 when absent for back-compat); set to 0.0 to select on the
             # pure-vertical regime that matches the PID baseline.
             evalcb = cfg.get("eval_callback", None)
-            eval_task_difficulty = (
-                float(evalcb.task_difficulty)
-                if evalcb is not None and "task_difficulty" in evalcb
+            eval_progress = (
+                float(evalcb.curriculum_progress)
+                if evalcb is not None and "curriculum_progress" in evalcb
                 else 1.0
             )
             eval_cfg = OmegaConf.merge(
                 cfg,
                 OmegaConf.create(
-                    {
-                        "env": {
-                            "curriculum": {
-                                "schedule": "fixed",
-                                "task_difficulty": eval_task_difficulty,
-                            }
-                        }
-                    }
+                    {"env": {"curriculum": {"progress_override": eval_progress}}}
                 ),
             )
             eval_env = make_vec_env(lambda: RocketLandingEnv(eval_cfg), n_envs=1, seed=seed + 999)
@@ -161,24 +154,31 @@ class PPOAgent:
             )
 
         steps_done = getattr(self._model, "num_timesteps", 0) if resume_from else 0
-        remaining = max(int(total_steps) - steps_done, 0)
+        # `total_steps` is the number of NEW environment steps to run, not a
+        # cumulative cap. On a fresh run that is the full budget; when resuming,
+        # SB3 re-adds the loaded num_timesteps internally (because
+        # reset_num_timesteps=False), so passing this value straight through
+        # trains exactly `total_steps` additional steps on top of the checkpoint.
+        # (The old cumulative semantics silently no-op'd once a checkpoint
+        # already exceeded the requested total.)
+        new_steps = max(int(total_steps), 0)
         reset_num_timesteps = not bool(resume_from)
 
         logger.info(
-            "PPO.learn: total_steps=%d steps_done=%d remaining=%d n_envs=%d device=%s n_steps=%d batch=%d",
-            int(total_steps),
+            "PPO.learn: new_steps=%d steps_done=%d target_total=%d n_envs=%d device=%s n_steps=%d batch=%d",
+            new_steps,
             steps_done,
-            remaining,
+            steps_done + new_steps,
             n_envs,
             device,
             n_steps,
             batch_size,
         )
-        if remaining == 0:
-            logger.info("checkpoint already at %d steps; nothing to train", steps_done)
+        if new_steps == 0:
+            logger.info("total_steps resolved to 0 new steps; nothing to train")
             return
         self._model.learn(
-            total_timesteps=remaining,
+            total_timesteps=new_steps,
             callback=CallbackList(callbacks),
             reset_num_timesteps=reset_num_timesteps,
         )
