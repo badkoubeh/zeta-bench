@@ -1,0 +1,61 @@
+# Hydra config for the graduated robustness disturbance matrix.
+# Entry point: experiments/evaluate_robustness.py
+#
+# Every controller is evaluated on the SAME fixed-seed disturbance grid
+# (configs/eval.yaml) so results are reproducible and cross-comparable. Initial
+# conditions are pinned (fixed curriculum) so disturbance_severity is the only
+# independent variable.
+#
+# CLI examples
+# ------------
+#   # all controllers (RL checkpoints must exist under results/)
+#   python experiments/evaluate_robustness.py
+#
+#   # PID only (no trained models needed — e.g. CI / quick check)
+#   python experiments/evaluate_robustness.py \
+#     eval_robustness.controllers.sac.enabled=false \
+#     eval_robustness.controllers.ppo.enabled=false
+#
+#   # quick smoke: shrink the sweep
+#   python experiments/evaluate_robustness.py eval.seeds=1 eval.episodes_per_seed=3
+
+defaults:
+  - env
+  - reward
+  - eval            # the disturbance grid + outputs (configs/eval.yaml)
+  - agent: sac      # provides cfg.agent.gamma for reward shaping; not loaded directly
+  - compute: cpu
+  - pid_controller
+  - _self_
+
+seed: 42
+run_name: robustness_${env.dynamics.fidelity}_${seed}
+results_dir: results/${run_name}
+
+# Only used when eval.outputs.log_wandb_table is true.
+wandb:
+  project: zeta-bench
+  entity: null               # null = the API key's default entity
+  mode: ${zeta.wandb_mode:}  # WANDB_MODE if set, else online when WANDB_API_KEY exists, else offline
+
+eval_robustness:
+  # Which controllers to compare. PID needs no checkpoint; each RL controller is
+  # loaded from model_path only when enabled AND the file exists (otherwise it is
+  # skipped with a warning, so PID-only runs work out of the box).
+  controllers:
+    pid:
+      enabled: true
+    sac:
+      enabled: true
+      model_path: results/sac_moderate_nominal_42/best_model.zip
+    ppo:
+      enabled: true
+      model_path: results/ppo_moderate_nominal_42/best_model.zip
+
+# Pin initial conditions so disturbance severity is the sole independent variable
+# and every controller/cell sees identical ICs. A non-fixed schedule breaks the
+# identical-conditions fairness guarantee (the runner warns if you change this).
+env:
+  curriculum:
+    schedule: fixed
+    task_difficulty: 1.0
