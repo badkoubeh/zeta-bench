@@ -259,32 +259,41 @@ def compute_gravity_inertial(total_mass_kg: float) -> NDArray[np.float64]:
 def compute_drag_inertial(
     velocity_inertial: NDArray[np.float64],
     params: Any,
+    wind_velocity_ned: NDArray[np.float64] | None = None,
 ) -> NDArray[np.float64]:
     """Aerodynamic drag in the inertial frame.
 
-    Simplified scalar model:
+    Simplified scalar model, computed on the **airspeed** — the vehicle's
+    velocity relative to the surrounding air mass:
 
     .. code-block:: text
 
-        F_drag = −½ · ρ · ‖v‖ · v · C_d · A_ref
+        v_air  = v − v_wind
+        F_drag = −½ · ρ · ‖v_air‖ · v_air · C_d · A_ref
 
-    The drag force opposes the velocity vector; magnitude grows as
-    velocity-squared. Atmospheric density ρ is constant (sea-level ISA);
-    no Mach-number, angle-of-attack, or altitude dependence — explicitly
-    out of scope for moderate fidelity (see README §Limitations).
+    A steady wind is modelled as a moving air mass (``wind_velocity_ned``, the
+    air-mass velocity in NED). With ``wind_velocity_ned = None`` (or the zero
+    vector) this reduces to drag on the inertial velocity — the nominal,
+    disturbance-free case. This is the physically honest way to inject wind: the
+    disturbance grid specifies wind in m/s precisely because it acts through the
+    relative-airspeed drag term (see :mod:`robustness.disturbances`).
 
-    Returns the zero vector when the rocket is at rest (avoids division
-    by zero on the velocity-direction normalisation, which the algebra
-    above implicitly does).
+    Atmospheric density ρ is constant (sea-level ISA); no Mach-number,
+    angle-of-attack, or altitude dependence — explicitly out of scope for
+    moderate fidelity (see README §Limitations).
+
+    Returns the zero vector when the airspeed is ~zero (avoids division by zero
+    on the direction normalisation, which the algebra above implicitly does).
     """
-    speed = float(np.linalg.norm(velocity_inertial))
-    if speed < 1e-9:
+    v_air = velocity_inertial if wind_velocity_ned is None else velocity_inertial - wind_velocity_ned
+    airspeed = float(np.linalg.norm(v_air))
+    if airspeed < 1e-9:
         return np.zeros(3)
     return (
         -0.5
         * RHO_AIR_SEA_LEVEL
-        * speed
-        * velocity_inertial
+        * airspeed
+        * v_air
         * params.drag_coefficient
         * params.reference_area_m2
     )
@@ -364,11 +373,19 @@ def compute_angular_acceleration(
 
 # --- composed state derivative + integrator --------------------------------
 
-def state_derivative(state: State, action: Action, params: Any) -> State:
+def state_derivative(
+    state: State,
+    action: Action,
+    params: Any,
+    wind_velocity_ned: NDArray[np.float64] | None = None,
+) -> State:
     """Time derivative of the 14-dim state vector.
 
     Composes translational, rotational, attitude, and mass-depletion
     derivatives. Pure function — no side effects.
+
+    ``wind_velocity_ned`` (optional, m/s NED) is a steady air-mass velocity fed
+    to the drag term as relative airspeed; ``None`` is the nominal no-wind case.
 
     The mass derivative uses the Tsiolkovsky surrogate
 
@@ -394,7 +411,7 @@ def state_derivative(state: State, action: Action, params: Any) -> State:
     F_thrust_inertial = quat_rotate_body_to_inertial(q, F_thrust_body)
     total_mass = params.dry_mass_kg + m_fuel
     F_gravity = compute_gravity_inertial(total_mass)
-    F_drag = compute_drag_inertial(v, params)
+    F_drag = compute_drag_inertial(v, params, wind_velocity_ned)
     F_total_inertial = F_thrust_inertial + F_gravity + F_drag
 
     # Translational derivatives
@@ -423,6 +440,7 @@ def rk4_step(
     action: Action,
     params: Any,
     dt: float,
+    wind_velocity_ned: NDArray[np.float64] | None = None,
 ) -> State:
     """Advance the state by ``dt`` using classical 4th-order Runge-Kutta.
 
@@ -440,16 +458,20 @@ def rk4_step(
     the project's 5 ms substep (200 Hz physics) for the dynamics ranges
     we exercise.
 
+    ``wind_velocity_ned`` (optional, m/s NED) is held constant across the step
+    alongside the action and forwarded to every stage's :func:`state_derivative`;
+    ``None`` is the nominal no-wind case.
+
     Post-integration housekeeping:
         - Renormalise the quaternion to enforce ‖q‖ = 1 under floating-
           point drift.
         - Clamp fuel mass at zero (Tsiolkovsky can drive it negative if
           the command sustains thrust past empty).
     """
-    k1 = state_derivative(state, action, params)
-    k2 = state_derivative(state + (dt / 2.0) * k1, action, params)
-    k3 = state_derivative(state + (dt / 2.0) * k2, action, params)
-    k4 = state_derivative(state + dt * k3, action, params)
+    k1 = state_derivative(state, action, params, wind_velocity_ned)
+    k2 = state_derivative(state + (dt / 2.0) * k1, action, params, wind_velocity_ned)
+    k3 = state_derivative(state + (dt / 2.0) * k2, action, params, wind_velocity_ned)
+    k4 = state_derivative(state + dt * k3, action, params, wind_velocity_ned)
 
     state_next = state + (dt / 6.0) * (k1 + 2.0 * k2 + 2.0 * k3 + k4)
 

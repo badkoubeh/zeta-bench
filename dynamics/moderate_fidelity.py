@@ -24,6 +24,7 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 
 import numpy as np
+from numpy.typing import NDArray
 
 from dynamics.base import RocketDynamics
 from dynamics.equations_of_motion import rk4_step
@@ -71,7 +72,13 @@ class ModerateFidelityDynamics(RocketDynamics):
         """Construct dynamics from an immutable parameter dataclass."""
         self._params = params
 
-    def step(self, state: State, action: Action, dt: float) -> State:
+    def step(
+        self,
+        state: State,
+        action: Action,
+        dt: float,
+        wind_velocity_ned: NDArray[np.float64] | None = None,
+    ) -> State:
         """Integrate one control tick using RK4 with ``physics_substeps`` substeps.
 
         The control-tick ``dt`` is subdivided into ``physics_substeps`` equal
@@ -88,6 +95,10 @@ class ModerateFidelityDynamics(RocketDynamics):
             held constant across substeps.
         dt : float
             Control-tick duration in seconds (e.g. 0.02 for 50 Hz).
+        wind_velocity_ned : NDArray or None, optional
+            Steady air-mass velocity (m/s NED), held constant across substeps
+            and applied via the relative-airspeed drag term. ``None`` (default)
+            is the nominal no-wind case.
 
         Returns
         -------
@@ -98,7 +109,7 @@ class ModerateFidelityDynamics(RocketDynamics):
         dt_sub = dt / n_sub
         s = state.copy()
         for _ in range(n_sub):
-            s = rk4_step(s, action, self._params, dt_sub)
+            s = rk4_step(s, action, self._params, dt_sub, wind_velocity_ned)
         return s
 
     def get_params(self) -> DynamicsParams:

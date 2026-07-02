@@ -17,6 +17,9 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 
+import numpy as np
+from numpy.typing import NDArray
+
 from dynamics.types import Action, DynamicsParams, State
 
 
@@ -24,7 +27,13 @@ class RocketDynamics(ABC):
     """Abstract 6-DOF rocket dynamics model."""
 
     @abstractmethod
-    def step(self, state: State, action: Action, dt: float) -> State:
+    def step(
+        self,
+        state: State,
+        action: Action,
+        dt: float,
+        wind_velocity_ned: NDArray[np.float64] | None = None,
+    ) -> State:
         """Integrate dynamics forward by one control tick.
 
         Parameters
@@ -35,6 +44,11 @@ class RocketDynamics(ABC):
             3-dim action vector ``[throttle, gimbal_pitch, gimbal_yaw]``.
         dt : float
             Control-tick duration in seconds (e.g. ``0.02`` for 50 Hz).
+        wind_velocity_ned : NDArray or None, optional
+            Steady air-mass velocity in the NED inertial frame (m/s), applied
+            through the relative-airspeed drag term. ``None`` (the default) is
+            the nominal, disturbance-free case. This is the graduated-matrix
+            wind-disturbance hook — see :mod:`robustness.disturbances`.
 
         Returns
         -------
