@@ -296,12 +296,27 @@ is graduated by `disturbance_severity` — the magnitude axis of an external
 disturbance, kept distinct from `task_difficulty` (the nominal initial-condition
 envelope).
 
-| Disturbance | Severity levels tested |
-|---|---|
-| Wind | 0, 2, 5, 10 m/s × N/E/S/W/diagonal |
-| Mass uncertainty | payload offset −20 % to +20 % |
-| Sensor noise | σ 0–0.1, spike probability 0–5 % |
-| Combined | all at maximum simultaneously |
+| Disturbance | Severity levels tested | How it enters the physics |
+|---|---|---|
+| Wind | 0, 2, 5, 10 m/s × N/E/S/W/diagonal | relative airspeed in the drag term (`v_air = v − v_wind`) |
+| Mass uncertainty | payload offset −20 % to +20 % | scales the vehicle dry mass |
+| Sensor noise | σ 0–0.1, spike probability 0–5 % | Gaussian + spikes on the observation |
+| Combined | all at maximum simultaneously | all of the above at once |
+
+Wind is modelled as a moving air mass, so it acts through the physically honest
+relative-airspeed drag term (which is why the grid is specified in m/s), not as
+an arbitrary force. Run it (PID needs no checkpoint; RL controllers load from
+`results/`):
+
+```bash
+# all controllers; or add controllers.sac.enabled=false to run PID only
+python experiments/evaluate_robustness.py
+```
+
+Outputs land in `results/`: `robustness_matrix.csv` (one row per
+controller × cell, with per-cell sample count) and `robustness_heatmap.png`
+(one panel per controller). Per-cell `n` is reported so a success rate is never
+read as more precise than its sample size warrants.
 
 ### Optional — adversarial / worst-case search
 
@@ -551,10 +566,9 @@ in `configs/` — these are the common ones.
 | `eval_rl.model_path=` | `null` | evaluate a local checkpoint `.zip` |
 | `eval_rl.model_artifact=` | `null` | evaluate a checkpoint pulled from the W&B registry |
 
-> **Not yet runnable.** The robustness disturbance sweep
-> (`python experiments/evaluate_robustness.py`, and the `make eval` target that wraps it)
-> and adversarial training (`train_mode=adversarial`) still raise `NotImplementedError`.
-> Everything else above runs today.
+> **Adversarial mode not yet runnable.** Adversarial training
+> (`train_mode=adversarial`) still raises `NotImplementedError`. The graduated
+> robustness sweep (`python experiments/evaluate_robustness.py`) runs today.
 
 All results, checkpoints, and videos are saved to `results/{run_name}/`.
 
