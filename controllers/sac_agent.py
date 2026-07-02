@@ -7,7 +7,7 @@ come from ``configs/agent/sac.yaml``; the compute profile (``configs/compute/*.y
 overrides throughput-shaping fields and selects the device.
 
 The training callback (:class:`utils.sb3_callbacks.WandbLoggingCallback`)
-logs every reward component, curriculum task difficulty, and episode-level metrics to
+logs every reward component, curriculum progress, and episode-level metrics to
 wandb separately from the total reward (per ``CONTRIBUTING.md`` §Experiment Tracking).
 
 Stable-Baselines3 and torch are imported **lazily** inside :meth:`learn` /
@@ -219,25 +219,32 @@ class SACAgent:
             )
 
         steps_done = getattr(self._model, "num_timesteps", 0) if resume_from else 0
-        remaining = max(int(total_steps) - steps_done, 0)
+        # `total_steps` is the number of NEW environment steps to run, not a
+        # cumulative cap. On a fresh run that is the full budget; when resuming,
+        # SB3 re-adds the loaded num_timesteps internally (because
+        # reset_num_timesteps=False), so passing this value straight through
+        # trains exactly `total_steps` additional steps on top of the checkpoint.
+        # (The old cumulative semantics silently no-op'd once a checkpoint
+        # already exceeded the requested total.)
+        new_steps = max(int(total_steps), 0)
         reset_num_timesteps = not bool(resume_from)
 
         logger.info(
-            "SAC.learn: total_steps=%d steps_done=%d remaining=%d n_envs=%d device=%s batch=%d buffer=%d grad_steps=%d",
-            int(total_steps),
+            "SAC.learn: new_steps=%d steps_done=%d target_total=%d n_envs=%d device=%s batch=%d buffer=%d grad_steps=%d",
+            new_steps,
             steps_done,
-            remaining,
+            steps_done + new_steps,
             n_envs,
             device,
             batch_size,
             buffer_size,
             gradient_steps,
         )
-        if remaining == 0:
-            logger.info("checkpoint already at %d steps; nothing to train", steps_done)
+        if new_steps == 0:
+            logger.info("total_steps resolved to 0 new steps; nothing to train")
             return
         self._model.learn(
-            total_timesteps=remaining,
+            total_timesteps=new_steps,
             callback=CallbackList(callbacks),
             reset_num_timesteps=reset_num_timesteps,
         )
