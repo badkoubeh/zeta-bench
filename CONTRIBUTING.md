@@ -291,13 +291,16 @@ All results, checkpoints, and videos saved to `results/{run_name}/`.
 ## Robustness Evaluation
 
 ```bash
-python experiments/evaluate_robustness.py checkpoint=results/sac_moderate_adversarial_42/
+# PID needs no checkpoint; RL controllers load from their model_path when set:
+python experiments/evaluate_robustness.py \
+    eval_robustness.controllers.sac.model_path=results/<sac_run>/best_model.zip \
+    eval_robustness.controllers.ppo.model_path=results/<ppo_run>/best_model.zip
 ```
 
 Outputs:
-- `results/robustness_matrix.csv` — full disturbance sweep table
-- `results/side_by_side.mp4` — naive vs robust agent video
-- wandb table logged automatically
+- `results/robustness_matrix.csv` — full disturbance sweep table (one row per controller × cell)
+- `results/robustness_heatmap.png` — one heatmap panel per controller
+- wandb table logged automatically (disable with `eval.outputs.log_wandb_table=false`)
 
 ---
 
