@@ -111,6 +111,14 @@ def landing_cost(state: State, cfg: DictConfig) -> float:
     tilt_n = m["tilt"] / float(s.tilt_rad)
     rate_n = m["angular_rate"] / float(s.angular_rate_radps)
 
+    # Ground-gated terminal-velocity term: penalise speed increasingly as the
+    # vehicle nears the pad, so the agent learns to flare/brake on final approach.
+    # gate ∈ (0, 1], ≈1 at touchdown and decaying with altitude; zero speed (the
+    # landed state) contributes nothing, keeping landing_cost zero there.
+    landing_speed_weight = float(getattr(p, "landing_speed_weight", 0.0))
+    gate_alt = float(getattr(p, "ground_gate_altitude_m", 15.0))
+    ground_gate = float(np.exp(-m["altitude"] / gate_alt)) if gate_alt > 0.0 else 1.0
+
     return (
         float(p.lateral_weight) * lateral_n * lateral_n
         + float(p.altitude_weight) * altitude_n * altitude_n
@@ -118,6 +126,7 @@ def landing_cost(state: State, cfg: DictConfig) -> float:
         + float(p.vertical_velocity_weight) * vspeed_n * vspeed_n
         + float(p.tilt_weight) * tilt_n * tilt_n
         + float(p.angular_rate_weight) * rate_n * rate_n
+        + landing_speed_weight * speed_n * speed_n * ground_gate
     )
 
 
