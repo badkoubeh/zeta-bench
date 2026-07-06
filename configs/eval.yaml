@@ -12,10 +12,12 @@ eval:
     sensor_noise:
       sigma: [0.0, 0.01, 0.05, 0.1]
       spike_probability: [0.0, 0.01, 0.05]
+      spike_magnitude: 0.5             # scaled-obs units; size of an outlier spike when one fires
     combined:
       enabled: true                  # max-level all disturbances together
 
   outputs:
     csv_path: results/robustness_matrix.csv
+    heatmap_path: results/robustness_heatmap.png
     video_path: results/side_by_side.mp4
     log_wandb_table: true

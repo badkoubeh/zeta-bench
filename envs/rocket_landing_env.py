@@ -23,6 +23,16 @@ Action space (3-dim ``Box``):
 Reward: potential-based shaping (per step) + impact-aware terminal outcome.
 See :mod:`envs.reward`.
 
+Disturbances: the env is nominal (disturbance-free) by default. Four typed
+disturbances can be injected — wind (relative-airspeed drag), mass uncertainty
+(dry-mass offset), sensor noise (Gaussian + spikes on the observation), and
+actuator delay (latency on the applied action). They are supplied through the
+primitive :meth:`RocketLandingEnv.set_disturbance` hook or the optional
+``cfg.env.disturbance`` block; the graduated robustness matrix drives them
+per-cell. To respect the layering (``envs`` sits below ``robustness``), the env
+takes only primitive values here — the typed ``Disturbance`` object and the
+grid live in :mod:`robustness.disturbances`.
+
 Termination:
     - ``success`` — z >= 0 (touchdown at/below pad) with low velocity, tilt, ω
     - ``crash``   — z >= 0 but landing thresholds violated
@@ -35,14 +45,16 @@ Import rule: this module imports from ``dynamics/`` and ``utils/`` only.
 """
 from __future__ import annotations
 
+import dataclasses
+from collections import deque
 from typing import Any
 
 import gymnasium as gym
 import numpy as np
 from gymnasium import spaces
-from omegaconf import DictConfig
+from omegaconf import DictConfig, OmegaConf
 
-from dynamics.equations_of_motion import quat_rotate_body_to_inertial, quat_to_euler
+from dynamics.equations_of_motion import quat_to_euler
 from dynamics.moderate_fidelity import ModerateFidelityDynamics, ModerateFidelityParams
 from dynamics.types import (
     ACTION_DIM,
@@ -99,9 +111,21 @@ class RocketLandingEnv(gym.Env):
             physics_substeps=int(cfg.env.episode.physics_substeps),
             engine_lever_arm_m=d.engine_lever_arm_m,
         )
+        # Base (nominal) parameters. Mass-uncertainty disturbances rebuild the
+        # dynamics from these; keep them immutable so nominal is always recoverable.
+        self._base_params = params
         self._dynamics = ModerateFidelityDynamics(params)
         self._scaler = FixedObsScaler(cfg)
         self._curriculum = Curriculum(cfg)
+
+        # Disturbance state (nominal until set via set_disturbance / config).
+        self._wind_velocity_ned: np.ndarray | None = None
+        self._mass_offset_fraction: float = 0.0
+        self._sensor_noise_sigma: float = 0.0
+        self._sensor_spike_probability: float = 0.0
+        self._sensor_spike_magnitude: float = 0.0
+        self._actuator_delay_steps: int = 0
+        self._action_buffer: deque[np.ndarray] | None = None
 
         # Episode bookkeeping
         self._max_steps: int = int(cfg.env.episode.max_steps)
@@ -136,6 +160,95 @@ class RocketLandingEnv(gym.Env):
 
         self._rng = np.random.default_rng()
 
+        # Apply the optional nominal disturbance block from config (if present).
+        # The robustness matrix overrides this per-cell at runtime.
+        dist_cfg = OmegaConf.select(cfg, "env.disturbance", default=None)
+        if dist_cfg is not None:
+            self._apply_disturbance_config(dist_cfg)
+
+    # --- Disturbance control (primitive hook for robustness/) ---------------
+
+    def set_disturbance(
+        self,
+        *,
+        wind_velocity_ned: np.ndarray | None = None,
+        mass_offset_fraction: float = 0.0,
+        sensor_noise_sigma: float = 0.0,
+        sensor_spike_probability: float = 0.0,
+        sensor_spike_magnitude: float = 0.0,
+        actuator_delay_steps: int = 0,
+    ) -> None:
+        """Set the active disturbance from primitive values (nominal defaults).
+
+        This is the layering-safe hook the graduated matrix uses to switch cells
+        cheaply: ``robustness.disturbances.Disturbance`` is unpacked into these
+        primitives by the matrix runner (the env never imports ``robustness``).
+        Takes effect from the next :meth:`reset`; the mass offset rebuilds the
+        dynamics immediately. Omitting all arguments restores nominal.
+
+        Parameters
+        ----------
+        wind_velocity_ned : ndarray or None
+            Air-mass velocity (m/s, NED) for the relative-airspeed drag term.
+        mass_offset_fraction : float
+            Signed fraction offsetting the vehicle dry mass.
+        sensor_noise_sigma, sensor_spike_probability, sensor_spike_magnitude : float
+            Gaussian σ, spike probability, and spike size on the scaled obs.
+        actuator_delay_steps : int
+            Control-tick latency applied to the commanded action.
+        """
+        self._wind_velocity_ned = (
+            None if wind_velocity_ned is None
+            else np.asarray(wind_velocity_ned, dtype=np.float64)
+        )
+        self._sensor_noise_sigma = float(sensor_noise_sigma)
+        self._sensor_spike_probability = float(sensor_spike_probability)
+        self._sensor_spike_magnitude = float(sensor_spike_magnitude)
+        self._actuator_delay_steps = int(actuator_delay_steps)
+        self._apply_mass_offset(float(mass_offset_fraction))
+
+    def _apply_mass_offset(self, fraction: float) -> None:
+        """Rebuild the dynamics with dry mass scaled by ``1 + fraction``."""
+        self._mass_offset_fraction = fraction
+        scaled = dataclasses.replace(
+            self._base_params,
+            dry_mass_kg=self._base_params.dry_mass_kg * (1.0 + fraction),
+        )
+        self._dynamics = ModerateFidelityDynamics(scaled)
+
+    def _apply_disturbance_config(self, dist_cfg: DictConfig) -> None:
+        """Translate a ``cfg.env.disturbance`` block into a ``set_disturbance`` call.
+
+        Wind is given in polar form (magnitude + compass bearing) and converted
+        to a NED velocity here — mirroring ``robustness.disturbances.wind_from_polar``
+        (0°=N=+X, 90°=E=+Y) without importing the higher robustness layer.
+        """
+        magnitude = float(OmegaConf.select(dist_cfg, "wind_magnitude_mps", default=0.0))
+        bearing = float(OmegaConf.select(dist_cfg, "wind_direction_deg", default=0.0))
+        if magnitude != 0.0:
+            theta = np.deg2rad(bearing)
+            wind = np.array([magnitude * np.cos(theta), magnitude * np.sin(theta), 0.0])
+        else:
+            wind = None
+        self.set_disturbance(
+            wind_velocity_ned=wind,
+            mass_offset_fraction=float(
+                OmegaConf.select(dist_cfg, "mass_offset_fraction", default=0.0)
+            ),
+            sensor_noise_sigma=float(
+                OmegaConf.select(dist_cfg, "sensor_noise_sigma", default=0.0)
+            ),
+            sensor_spike_probability=float(
+                OmegaConf.select(dist_cfg, "sensor_spike_probability", default=0.0)
+            ),
+            sensor_spike_magnitude=float(
+                OmegaConf.select(dist_cfg, "sensor_spike_magnitude", default=0.0)
+            ),
+            actuator_delay_steps=int(
+                OmegaConf.select(dist_cfg, "actuator_delay_steps", default=0)
+            ),
+        )
+
     # --- Gymnasium API -----------------------------------------------------
 
     def reset(
@@ -163,6 +276,17 @@ class RocketLandingEnv(gym.Env):
         )
         self._step_in_episode = 0
         self._prev_action = None
+        # Cold-start the actuator-delay line with neutral commands (only when a
+        # delay is active). Applied action at step t is the command from
+        # ``actuator_delay_steps`` ticks earlier.
+        self._action_buffer = (
+            deque(
+                (np.zeros(ACTION_DIM, dtype=np.float64) for _ in range(self._actuator_delay_steps)),
+                maxlen=self._actuator_delay_steps,
+            )
+            if self._actuator_delay_steps > 0
+            else None
+        )
 
         obs = self._build_obs(self._state, action=np.zeros(ACTION_DIM, dtype=np.float64))
         info: dict[str, Any] = {
@@ -178,11 +302,17 @@ class RocketLandingEnv(gym.Env):
         if self._state is None:
             raise RuntimeError("step() called before reset()")
 
-        action = np.clip(action.astype(np.float64), self.action_space.low, self.action_space.high)
+        command = np.clip(action.astype(np.float64), self.action_space.low, self.action_space.high)
+        # Actuator delay: the vehicle responds to a lagged command. Everything
+        # downstream (dynamics, reward, obs last_action) uses the *applied*
+        # action — the true actuator state. With delay 0 this is the command.
+        applied = self._apply_actuator_delay(command)
 
         prev_state = self._state
         prev_fuel = fuel_mass(prev_state)
-        next_state = self._dynamics.step(prev_state, action, self._dt)
+        next_state = self._dynamics.step(
+            prev_state, applied, self._dt, self._wind_velocity_ned
+        )
         self._state = next_state
         self._step_in_episode += 1
         self._global_step += 1
@@ -198,7 +328,7 @@ class RocketLandingEnv(gym.Env):
         dense, components = shaping_reward(
             prev_state,
             shaping_next,
-            action,
+            applied,
             self._prev_action,
             prev_fuel,
             self._gamma,
@@ -212,7 +342,7 @@ class RocketLandingEnv(gym.Env):
         components["terminal"] = terminal
         reward = float(dense + terminal)
 
-        obs = self._build_obs(next_state, action)
+        obs = self._build_obs(next_state, applied)
         info: dict[str, Any] = {
             "reward_components": components,
             "terminal_metrics": touchdown_metrics(next_state),
@@ -222,7 +352,7 @@ class RocketLandingEnv(gym.Env):
             "task_difficulty": self._task_difficulty,
         }
 
-        self._prev_action = action
+        self._prev_action = applied
         return obs, reward, terminated, truncated, info
 
     def render(self) -> np.ndarray | None:
@@ -235,6 +365,38 @@ class RocketLandingEnv(gym.Env):
         return None
 
     # --- helpers -----------------------------------------------------------
+
+    def _apply_actuator_delay(self, command: np.ndarray) -> np.ndarray:
+        """Return the action actually applied this tick given the delay line.
+
+        With no delay, the command is applied as-is. Otherwise the applied
+        action is the command issued ``actuator_delay_steps`` ticks earlier; the
+        buffer is cold-started with neutral commands in :meth:`reset`.
+        """
+        if self._action_buffer is None:
+            return command
+        applied = self._action_buffer[0]  # oldest queued command
+        self._action_buffer.append(command)  # maxlen drops the one just applied
+        return applied
+
+    def _apply_sensor_noise(self, obs: np.ndarray) -> np.ndarray:
+        """Add Gaussian noise and sparse spikes to the scaled observation.
+
+        Noise is drawn from the env's seeded ``self._rng``, so a fixed seed
+        reproduces the exact perturbation sequence — the fairness property the
+        graduated matrix relies on. σ and spike size are in scaled-obs units
+        (fractions of each sensor's full-scale range).
+        """
+        noisy = obs.astype(np.float32)
+        if self._sensor_noise_sigma > 0.0:
+            gaussian = self._rng.normal(0.0, self._sensor_noise_sigma, size=noisy.shape)
+            noisy = noisy + gaussian.astype(np.float32)
+        if self._sensor_spike_probability > 0.0:
+            fired = self._rng.random(noisy.shape) < self._sensor_spike_probability
+            signs = self._rng.choice(np.array([-1.0, 1.0]), size=noisy.shape)
+            spikes = fired * signs * self._sensor_spike_magnitude
+            noisy = noisy + spikes.astype(np.float32)
+        return noisy
 
     def _build_obs(self, state: State, action: Action) -> np.ndarray:
         """Pack state + last action into the 17-dim scaled observation."""
@@ -255,7 +417,10 @@ class RocketLandingEnv(gym.Env):
                 np.array([fm, fuel_remaining], dtype=np.float64),
             ]
         )
-        return self._scaler.scale(raw).astype(np.float32)
+        scaled = self._scaler.scale(raw).astype(np.float32)
+        if self._sensor_noise_sigma > 0.0 or self._sensor_spike_probability > 0.0:
+            scaled = self._apply_sensor_noise(scaled)
+        return scaled
 
     def _check_termination(self) -> tuple[bool, bool, str]:
         """Return (terminated, truncated, reason)."""

@@ -52,6 +52,7 @@ include = [
     "envs*",
     "controllers*",
     "adversary*",
+    "robustness*",
     "experiments*",
     "utils*",
 ]
@@ -70,6 +71,7 @@ addopts = [
     "--cov=envs",
     "--cov=controllers",
     "--cov=utils",
+    "--cov=robustness",
     "--cov-branch",
     "--cov-report=term-missing",
     "--cov-report=html:htmlcov",
