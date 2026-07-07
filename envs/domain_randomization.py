@@ -17,7 +17,10 @@ Scope + layering
   import :mod:`robustness`, mirroring the env's own polar-wind convention
   (0°=N=+X, 90°=E=+Y) so the ``envs`` layer stays self-contained.
 
-Ranges come from ``cfg.env.domain_randomization`` (see ``configs/env.yaml``); the
+Ranges come from ``cfg.env.domain_randomization`` (see ``configs/env.yaml``) and are
+**required** when DR is enabled — the wrapper raises on a missing range rather than
+silently substituting a hardcoded default, so config stays the single source of
+disturbance magnitudes (set a channel to ``[0.0, 0.0]`` to leave it nominal). The
 extreme sensor-noise regime (σ≥0.10) is intentionally excluded upstream because it
 is a shared physics/observability wall no controller survives.
 """
@@ -29,13 +32,37 @@ from numpy.typing import NDArray
 from omegaconf import DictConfig, OmegaConf
 
 
-def _pair(cfg: DictConfig, key: str, default: tuple[float, float]) -> tuple[float, float]:
-    """Read a ``[low, high]`` range from config, falling back to ``default``."""
+def _require_pair(cfg: DictConfig, key: str) -> tuple[float, float]:
+    """Read a required ``[low, high]`` range from the domain-randomisation config.
+
+    Raises :class:`ValueError` if the key is absent. ``configs/env.yaml`` is the
+    single source of disturbance magnitudes: rather than silently substituting a
+    hardcoded default (which could diverge from the config and train the policy on
+    an unintended disturbance), a missing range is treated as a configuration
+    error. To leave a channel nominal, set it explicitly to ``[0.0, 0.0]``.
+    """
     val = OmegaConf.select(cfg, key, default=None)
     if val is None:
-        return default
+        raise ValueError(
+            f"env.domain_randomization.{key} is required when domain randomisation is "
+            f"enabled; set it explicitly ([0.0, 0.0] leaves that channel nominal)."
+        )
     seq = list(val)
     return float(seq[0]), float(seq[1])
+
+
+def _require_scalar(cfg: DictConfig, key: str) -> float:
+    """Read a required scalar from the domain-randomisation config.
+
+    Raises :class:`ValueError` if the key is absent, for the same
+    single-source-of-truth reason as :func:`_require_pair`.
+    """
+    val = OmegaConf.select(cfg, key, default=None)
+    if val is None:
+        raise ValueError(
+            f"env.domain_randomization.{key} is required when domain randomisation is enabled."
+        )
+    return float(val)
 
 
 class DomainRandomizationWrapper(gym.Wrapper):
@@ -52,12 +79,16 @@ class DomainRandomizationWrapper(gym.Wrapper):
 
     def __init__(self, env: gym.Env, dr_cfg: DictConfig) -> None:
         super().__init__(env)
-        self._wind_mag = _pair(dr_cfg, "wind_magnitude_mps", (0.0, 10.0))
-        self._mass = _pair(dr_cfg, "mass_offset_fraction", (-0.20, 0.20))
-        self._sigma = _pair(dr_cfg, "sensor_noise_sigma", (0.0, 0.05))
-        self._spike_p = _pair(dr_cfg, "sensor_spike_probability", (0.0, 0.05))
-        self._spike_mag = float(OmegaConf.select(dr_cfg, "sensor_spike_magnitude", default=0.5))
-        delay = _pair(dr_cfg, "actuator_delay_steps", (0.0, 0.0))
+        # configs/env.yaml is the single source of disturbance magnitudes. Every
+        # range is REQUIRED when DR is enabled: a missing key raises rather than
+        # silently falling back to a hardcoded default that could diverge from the
+        # config. Set a channel to [0.0, 0.0] to leave it nominal.
+        self._wind_mag = _require_pair(dr_cfg, "wind_magnitude_mps")
+        self._mass = _require_pair(dr_cfg, "mass_offset_fraction")
+        self._sigma = _require_pair(dr_cfg, "sensor_noise_sigma")
+        self._spike_p = _require_pair(dr_cfg, "sensor_spike_probability")
+        self._spike_mag = _require_scalar(dr_cfg, "sensor_spike_magnitude")
+        delay = _require_pair(dr_cfg, "actuator_delay_steps")
         self._delay = (int(delay[0]), int(delay[1]))
         # Disturbance-severity curriculum: scale the ranges by a fraction that ramps
         # 0→1 over this many PER-ENV steps (0 disables the ramp → full ranges always).
