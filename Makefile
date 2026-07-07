@@ -1,12 +1,13 @@
 # Convenience targets for zeta-bench.
 # Run `make help` to list available targets.
 
-.PHONY: help image train eval eval-pid viz shell test lint lock clean
+.PHONY: help image train train-profile eval eval-pid viz shell test lint lock clean
 
 IMAGE   ?= zeta-bench:latest
 COMPUTE ?= cpu        # cpu | small_gpu | large_gpu | multi_gpu
 AGENT   ?= sac        # sac | ppo
 SEED    ?= 42
+PROFILE ?= progressive  # progressive | smoke
 
 help:  ## Show this help.
 	@awk 'BEGIN {FS = ":.*##"; printf "\nUsage: make \033[36m<target>\033[0m\n\n"} \
@@ -24,6 +25,13 @@ image:  ## Build the Docker image.
 train:  ## Train inside the container.
 	docker compose run --rm train experiments/train.py \
 	    compute=$(COMPUTE) agent=$(AGENT) seed=$(SEED)
+
+train-profile:  ## One-shot progressive profile (Stage A -> gate -> Stage B, all agents).
+	docker compose run --rm train experiments/train_profile.py \
+	    compute=$(COMPUTE) seed=$(SEED) profile=$(PROFILE)
+# Detached day-long run without compose (logs via `docker logs -f zeta-profile`):
+#   docker run -d --name zeta-profile -v "$(PWD)/results:/workspace/results" \
+#       -e WANDB_API_KEY $(IMAGE) experiments/train_profile.py profile=progressive
 
 eval:  ## Run the robustness evaluation sweep.
 	docker compose run --rm eval experiments/evaluate_robustness.py \
