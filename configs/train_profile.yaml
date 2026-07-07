@@ -1,0 +1,24 @@
+# One-shot progressive training profile: Stage A (task-difficulty curriculum,
+# nominal dynamics) -> verification gate -> Stage B (domain randomization with
+# a disturbance-severity ramp). Entry point: experiments/train_profile.py.
+#
+# Each stage runs as a normal experiments/train.py subprocess, so every stage
+# is an ordinary, individually reproducible training run with its own wandb
+# run, checkpoints and model-selection eval. Stage budgets/knobs live in the
+# profile group (configs/profile/*.yaml).
+#
+#   python experiments/train_profile.py                     # SAC + PPO, full budgets
+#   python experiments/train_profile.py profile=smoke       # minutes-scale wiring check
+#   python experiments/train_profile.py profile.agents=[sac] seed=7
+
+defaults:
+  - env               # fidelity for run names; DR ranges stay here (single source of magnitudes)
+  - compute: cpu      # n_envs drives the global->per-env anneal-step conversion
+  - profile: progressive
+  - _self_
+
+seed: 42
+run_name: profile_${profile.name}_${env.dynamics.fidelity}_${seed}
+# Gate evaluations (results_dir/gate/) and gate_report.json land here; each
+# training stage writes its own results/<stage_run_name>/ directory as usual.
+results_dir: results/${run_name}

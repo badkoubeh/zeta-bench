@@ -1,0 +1,36 @@
+# Minutes-scale wiring check for the profile chain (stages, gate, archives,
+# report). Verifies plumbing only — budgets are far too small for learning.
+# threshold: 0.0 exercises the pass path end-to-end; force the failure path
+# (extension -> gate_failed -> Stage B skipped) with profile.gate.threshold=1.01.
+#
+#   python experiments/train_profile.py profile=smoke
+
+name: smoke
+agents: [sac, ppo]
+
+stage_a:
+  total_steps: 6_000
+  curriculum_ramp_fraction: 0.5
+  eval_every_n_steps: 1_000
+  n_eval_episodes: 2
+  eval_task_difficulty: 1.0
+
+gate:
+  threshold: 0.0
+  n_episodes: 4
+  task_difficulty: 1.0
+  seed_offset: 10_000
+  candidates: [best_model.zip, model.zip]
+  max_extensions: 1
+  extension_steps: 2_000
+
+stage_b:
+  total_steps: 4_000
+  task_difficulty: 1.0
+  dr_ramp_fraction: 0.5
+  eval_every_n_steps: 1_000
+  n_eval_episodes: 2
+  eval_task_difficulty: 1.0
+
+wandb_tags: [profile_smoke]
+overrides: []

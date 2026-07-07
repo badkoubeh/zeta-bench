@@ -1,0 +1,44 @@
+# Progressive profile: budgets sized for roughly a day of wall clock on a
+# 4-env CPU host (SAC dominates; PPO is several times faster). Every value is
+# a knob — override at the CLI, e.g. profile.stage_a.total_steps=1000000.
+#
+# All *_steps values are GLOBAL steps across compute.n_envs workers; the
+# orchestrator converts ramp fractions into per-env anneal targets
+# (robustness/progressive.py:per_env_anneal_steps).
+
+name: progressive
+agents: [sac, ppo]   # trained sequentially — n_envs already saturates a CPU host
+
+stage_a:
+  # Naive stage: task-difficulty curriculum ramps 0->1, domain randomization off.
+  total_steps: 2_000_000
+  curriculum_ramp_fraction: 0.5    # fraction of the per-env budget spent ramping 0->1
+  eval_every_n_steps: 50_000       # model-selection eval cadence (global steps)
+  n_eval_episodes: 20
+  eval_task_difficulty: 1.0        # select best_model.zip at full difficulty (matches the gate)
+
+gate:
+  # Verification between stages: candidates are archived, then evaluated at
+  # full task difficulty under nominal conditions (experiments/evaluate_rl.py);
+  # Stage B starts only from a checkpoint clearing the threshold.
+  threshold: 0.90                  # minimum success rate
+  n_episodes: 100
+  task_difficulty: 1.0             # gate difficulty; also pins extension-run training difficulty
+  seed_offset: 10_000              # gate seed = seed + offset (disjoint from train / eval-callback streams)
+  candidates: [best_model.zip, model.zip]   # priority order (breaks exact ties)
+  max_extensions: 2                # bounded Stage A retries before aborting the agent's chain
+  extension_steps: 500_000         # additional global steps per extension run
+
+stage_b:
+  # Robust stage: resume the gate-selected checkpoint, pin the task at full
+  # difficulty, ramp domain-randomization severity 0->1. Disturbance ranges
+  # come from env.domain_randomization in configs/env.yaml.
+  total_steps: 1_000_000
+  task_difficulty: 1.0             # fixed-curriculum difficulty during Stage B
+  dr_ramp_fraction: 0.8            # severity ramp as a fraction of the per-env budget
+  eval_every_n_steps: 50_000
+  n_eval_episodes: 20
+  eval_task_difficulty: 1.0        # eval env stays nominal (no DR) — comparable across stages
+
+wandb_tags: [profile_progressive]  # merged into every stage's wandb.tags (plus stage + agent tags)
+overrides: []                      # extra experiments/train.py overrides appended to every training stage
