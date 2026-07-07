@@ -23,6 +23,7 @@ never from ``experiments``.
 from __future__ import annotations
 
 import csv
+from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
@@ -34,6 +35,57 @@ from utils.logging_config import get_logger
 from utils.normalisation import FixedObsScaler
 
 logger = get_logger(__name__)
+
+# Controller kinds the matrix knows how to build/load. ``pid`` is constructed
+# from config; RL kinds are loaded from an SB3 checkpoint by the entrypoint.
+CONTROLLER_KINDS: tuple[str, ...] = ("pid", "sac", "ppo")
+
+
+@dataclass(frozen=True)
+class ControllerSpec:
+    """One resolved entry of ``eval_robustness.controllers``.
+
+    ``name`` is the matrix/heatmap label (e.g. ``sac_robust``); ``kind`` says
+    how to build it. Decoupling the two lets one matrix run compare multiple
+    variants of the same algorithm (naive vs robust checkpoints) under the
+    identical-conditions guarantee.
+    """
+
+    name: str
+    kind: str
+    model_path: str | None
+    enabled: bool
+
+
+def resolve_controller_specs(controllers_cfg: DictConfig) -> list[ControllerSpec]:
+    """Resolve ``eval_robustness.controllers`` entries into typed specs.
+
+    Each entry's ``kind`` comes from its explicit ``type`` key when present;
+    otherwise the entry name itself must be a known kind (backward compatible
+    with the plain ``pid``/``sac``/``ppo`` config). Any other combination
+    raises ``ValueError`` so a typo cannot silently drop a controller from the
+    matrix. Config order is preserved (it fixes the heatmap panel order).
+    """
+    specs: list[ControllerSpec] = []
+    for name in controllers_cfg:
+        entry = controllers_cfg[name]
+        kind = str(entry.get("type", None) or name)
+        if kind not in CONTROLLER_KINDS:
+            raise ValueError(
+                f"controller {str(name)!r} has unknown kind {kind!r}; use one of "
+                f"{CONTROLLER_KINDS} as the entry name, or set its `type` key "
+                "explicitly (e.g. `sac_robust: {type: sac, model_path: ...}`)"
+            )
+        model_path = entry.get("model_path", None)
+        specs.append(
+            ControllerSpec(
+                name=str(name),
+                kind=kind,
+                model_path=str(model_path) if model_path else None,
+                enabled=bool(entry.enabled),
+            )
+        )
+    return specs
 
 # Per-cell descriptor columns (from the DisturbanceCell) followed by the summary
 # metrics. ``wind_direction_deg`` / ``spike_probability`` are ``None`` for cells
