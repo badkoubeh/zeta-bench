@@ -63,6 +63,13 @@ rocket environment is the worked example to follow.
 > graduated task difficulty. All results share one eval protocol
 > (100 episodes/cell, seed 42, touchdown threshold 3.0 m/s) so the three
 > controllers are directly comparable.
+>
+> These numbers are for the checkpoints named above, which were trained
+> **before** the touchdown-speed penalty was strengthened and the near-pad
+> landing-speed shaping was added (see [Reward](#reward)). They will be
+> regenerated once policies are retrained under the updated reward; expect the
+> RL agents' touchdown speeds to tighten, especially in the degraded high-task-
+> difficulty rows.
 
 ### Landing Success Rate vs Task Difficulty (SAC, nominal)
 
@@ -267,6 +274,30 @@ flowchart TB
 > files without updating this README; a GitHub Actions check surfaces the same
 > reminder on pull requests.
 
+### Reward
+
+The reward is `r_t = R_dense(s, a) + R_terminal(s)`, with every weight in
+`configs/reward.yaml` (companion guide: `docs/reward_engineering.md`).
+
+- **`R_dense` — potential-based shaping.** A distance-to-goal potential `Φ(s)`
+  guides the descent without changing the optimal policy (PBRS invariance). It
+  includes a **near-pad landing-speed term** gated by
+  `gate = exp(-altitude / ground_gate_altitude_m)` (≈1 at touchdown, decaying
+  with altitude), which pushes the agent to bleed off speed during the final
+  flare. Because that term is zero at the landed, zero-speed state, the potential
+  optimum is unchanged and the shaping stays PBRS-safe.
+- **`R_terminal` — impact-aware outcome.** Success pays a fixed bonus; a crash
+  penalty scales with touchdown **speed, tilt, angular rate, and lateral error**
+  rather than being flat, and out-of-bounds is pinned as the worst outcome so a
+  policy can never make fleeing the box cheaper than a hard landing. The
+  touchdown-speed weight is the dominant crash term and was recently strengthened
+  to drive softer touchdowns that clear — not merely reach — the 3.0 m/s success
+  gate.
+
+This targets a residual failure mode where a policy arrives nearly stopped but a
+few m/s too fast to count as a landing. The complementary threshold lives in
+`env.touchdown.velocity_threshold_mps` (3.0 m/s).
+
 ---
 
 ## Physics
@@ -424,6 +455,24 @@ This is exactly what you run inside a SageMaker Studio JupyterLab space on a GPU
 `export WANDB_API_KEY=...`. Device resolution falls back to CPU if the space has no GPU,
 so the same command is safe on a CPU instance.
 
+**Train under domain randomisation (optional).** By default training runs on nominal
+dynamics. To harden a policy across the disturbance distribution, enable the training-time
+domain-randomisation wrapper — every training episode then draws a fresh wind / mass /
+sensor-noise disturbance from `configs/env.yaml::env.domain_randomization`:
+
+```bash
+python experiments/train.py compute=large_gpu agent=ppo \
+    env.domain_randomization.enabled=true \
+    env.domain_randomization.severity_anneal_steps=500000
+```
+
+It wraps the **training vec-env only** — the eval / model-selection env and the graduated
+robustness matrix stay nominal and deterministic, so model selection and cross-controller
+comparison are unaffected. `severity_anneal_steps` ramps the disturbance magnitudes 0→1
+alongside the task-difficulty curriculum so a cold-start policy masters the easy nominal
+task before facing wide randomisation. See `docs/env_config_reference.md` for the full
+knob list.
+
 **Amazon SageMaker (managed jobs — parallel seed / HPO fan-out):**
 
 > **Honest note:** SB3's SAC is off-policy and single-process — a multi-GPU/multi-node
@@ -555,6 +604,13 @@ in `configs/` — these are the common ones.
 | `eval_callback.every_n_steps=` | `50000` | how often to evaluate for best-model selection |
 | `eval_callback.n_eval_episodes=` | `20` | episodes per evaluation |
 
+**Harden against disturbances? (`env.domain_randomization.*`, training only)**
+
+| Override | Default | Use it to… |
+| --- | --- | --- |
+| `env.domain_randomization.enabled=` | `false` | randomise wind / mass / sensor noise per training episode (eval + robustness matrix stay nominal) |
+| `env.domain_randomization.severity_anneal_steps=` | `0` | ramp disturbance magnitude 0→1 over N per-env steps (`0` = full ranges from step 0) |
+
 **Output features (rendering, episodes, difficulty)**
 
 | Override | Default | Use it to… |
@@ -596,8 +652,8 @@ knobs (`compute=`, `agent=`, `budget=`, render flags, …). Config files:
 - `configs/train.yaml` — top-level training composition
 - `configs/eval_pid.yaml` — PID baseline eval composition
 - `configs/eval_rl.yaml` — trained-agent eval composition
-- `configs/env.yaml` — environment and dynamics parameters
-- `configs/reward.yaml` — all reward weights
+- `configs/env.yaml` — environment, dynamics, and training-time domain-randomisation parameters
+- `configs/reward.yaml` — all reward weights (potential-based dense shaping + impact-aware terminal)
 - `configs/pid_controller.yaml` — PID gains
 - `configs/adversary.yaml` — adversary hyperparameters (adversarial mode not yet wired)
 - `configs/agent/{sac,ppo,pid}.yaml` — per-algorithm hyperparameters
@@ -676,8 +732,12 @@ This section documents honest constraints of the current implementation.
 - Fuel mass depletion is tracked but does not feed back into the inertia tensor
 
 **Training**
-- Adversarial training can be unstable; if agent and adversary diverge,
-  domain randomisation is the fallback
+- Training-time domain randomisation is implemented as a config-gated wrapper
+  (`env.domain_randomization`, off by default) and is the supported way to harden a
+  policy across the disturbance distribution; the learned adversary is scaffolded but
+  not yet wired (`train_mode=adversarial` raises `NotImplementedError`)
+- Domain randomisation defaults to off, so headline results are trained on nominal
+  dynamics unless a run explicitly enables it
 - Trained in simulation only — no sim-to-real gap analysis or hardware validation
 - Single GPU training; no distributed rollout collection
 

@@ -102,15 +102,20 @@ findings separately. Disturbance types: wind force, mass uncertainty, sensor noi
 actuator delay.
 
 ### Reward
-Hybrid: dense shaping every step + sparse terminal bonus/penalty.
-All coefficients in `configs/reward.yaml` — never hardcode reward weights.
+Hybrid: potential-based (PBRS) dense shaping every step + **impact-aware** sparse terminal.
+The crash penalty scales with touchdown speed/tilt/rate rather than being flat (the
+touchdown-speed term dominates and was strengthened), and a near-pad landing-speed shaping
+term drives softer touchdowns. All coefficients in `configs/reward.yaml` — never hardcode
+reward weights. See `docs/reward_engineering.md`.
 
 ### Curriculum
 Automatic **task-difficulty** annealing: `task_difficulty ∈ [0, 1]` ramps via a
 config-driven scheduler (`env.curriculum.schedule: linear | fixed`). It widens the
 **initial-condition envelope only** (drop height, lateral offset, descent speed) — it does
 NOT scale disturbances or adversary weight (those are the separate `disturbance_severity`
-and adversarial axes). See "Naming conventions" below.
+and adversarial axes). Disturbance magnitude has its own, separate training ramp,
+`env.domain_randomization.severity_anneal_steps` (the domain-randomisation severity
+curriculum). See "Naming conventions" below.
 
 ### Naming conventions (difficulty vs. severity vs. long tail)
 Keep these axes distinct in code, configs, and prose (prior art in parentheses):
@@ -124,9 +129,13 @@ Keep these axes distinct in code, configs, and prose (prior art in parentheses):
 - **adversarial** — learned worst-case disturbance; reported separately, never in the
   comparable matrix.
 
-`task_difficulty` is implemented; `disturbance_severity` and `rare_event` are reserved
-vocabulary for the (not-yet-built) disturbance matrix. Do not reuse "difficulty" for
-disturbances; `fidelity` is a modeling choice, not a difficulty.
+`task_difficulty` is implemented. `disturbance_severity` is now realized both in the
+built graduated matrix (`robustness/`, `experiments/evaluate_robustness.py`) and in the
+training-time domain-randomisation severity anneal
+(`env.domain_randomization.severity_anneal_steps`). `rare_event` remains reserved
+vocabulary (no separate long-tail sweep yet), and the adversarial mode is scaffolded only
+(`adversary/adversary_policy.py` raises `NotImplementedError`). Do not reuse "difficulty"
+for disturbances; `fidelity` is a modeling choice, not a difficulty.
 
 ---
 
@@ -309,8 +318,8 @@ Outputs:
 > Update this section as phases complete.
 
 - [x] Phase 1 — Foundation (Days 1–4) — Track A infrastructure + Track B physics core complete; `notebooks/physics_derivation.ipynb` deferred (maintainer-authored)
-- [ ] Phase 2 — Controllers (Days 5–10) — interchangeable controller interface; PID, SAC, PPO evaluated on identical conditions via `robustness/evaluation.py`
-- [ ] Phase 3 — Robustness Matrix (Days 11–18) — graduated disturbance matrix, signature heatmap, optional adversarial mode as separate power feature
+- [x] Phase 2 — Controllers (Days 5–10) — interchangeable controller interface; PID, SAC, PPO evaluated on identical conditions via `robustness/evaluation.py`
+- [~] Phase 3 — Robustness Matrix (Days 11–18) — graduated disturbance matrix + signature heatmap complete; training-time domain randomisation added; optional adversarial mode still scaffolded (`NotImplementedError`)
 - [ ] Phase 4 — Polish & OSS Release (Days 19–21)
 
 ---
@@ -327,7 +336,9 @@ full migration order in `.claude/CLAUDE.md` under "Renaming ZetaRL → ZetaBench
 ## Known Limitations (be honest)
 
 Document in `README.md` as work progresses:
-- Adversarial training may be unstable — fallback is domain randomisation
+- Training-time domain randomisation is implemented (`env.domain_randomization`, off by
+  default); the learned adversary is scaffolded but not yet wired, so domain randomisation
+  is the supported robustness-training path today
 - Moderate fidelity omits aerodynamics and gimbal actuator dynamics
 - Training is CPU/single-GPU; no distributed training
 - No real hardware validation
