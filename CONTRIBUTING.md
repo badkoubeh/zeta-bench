@@ -240,6 +240,8 @@ Config files:
 - `configs/adversary.yaml` — adversary hyperparams
 - `configs/agent/sac.yaml` — SAC hyperparams
 - `configs/agent/ppo.yaml` — PPO hyperparams
+- `configs/train_profile.yaml` — one-shot progressive training profile (entry point:
+  `experiments/train_profile.py`); stage budgets/gate knobs live in `configs/profile/*.yaml`
 
 ---
 
@@ -253,8 +255,12 @@ All runs logged to wandb. Required logged values:
 - Evaluation metrics: robustness matrix results
 
 wandb project name: `zetabench` (legacy runs used `zeta-bench`; new runs use `zetabench`)
-Run naming convention: `{agent}_{fidelity}_{adversarial|nominal}_{seed}`
-Example: `sac_moderate_nominal_42`
+Run naming convention: `{agent}_{fidelity}_{mode}_{seed}`, where `mode` is
+`nominal` / `adversarial` for plain training runs, and the progressive profile extends it
+with `stageA` (naive curriculum stage) and `dr` (domain-randomization stage) —
+`train_mode` itself stays `nominal` in both stages since domain randomisation is
+env-side, not a training mode.
+Examples: `sac_moderate_nominal_42`, `sac_moderate_stageA_42`, `sac_moderate_dr_42`
 
 ---
 
@@ -294,6 +300,17 @@ python experiments/train.py --config-name train seed=42
 ```
 
 All results, checkpoints, and videos saved to `results/{run_name}/`.
+
+One-shot progressive training (both agents; Stage A curriculum → verification gate →
+Stage B domain randomization; `profile=smoke` is a minutes-scale wiring check):
+
+```bash
+python experiments/train_profile.py                  # or: make train-profile
+```
+
+Per-stage artefacts land in `results/{stage_run_name}/` as usual; the gate's
+per-candidate success rates and selected checkpoints are recorded in
+`results/profile_{name}_{fidelity}_{seed}/gate_report.json`.
 
 ---
 
