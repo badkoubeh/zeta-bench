@@ -43,6 +43,7 @@ from omegaconf import DictConfig, OmegaConf
 from controllers.pid_baseline import PIDController
 from robustness.evaluation import (
     MATRIX_COLUMNS,
+    resolve_controller_specs,
     run_matrix,
     write_matrix_csv,
 )
@@ -63,41 +64,41 @@ _RL_AGENTS: dict[str, str] = {
 }
 
 
-def _load_rl_agent(name: str, model_path: str) -> object:
-    """Import the SB3 agent wrapper for ``name`` and load its checkpoint."""
-    module_path, class_name = _RL_AGENTS[name].rsplit(".", 1)
+def _load_rl_agent(kind: str, model_path: str) -> object:
+    """Import the SB3 agent wrapper for ``kind`` and load its checkpoint."""
+    module_path, class_name = _RL_AGENTS[kind].rsplit(".", 1)
     cls = getattr(importlib.import_module(module_path), class_name)
-    logger.info("loading %s controller from %s", name, model_path)
     return cls.load(model_path)
 
 
 def _build_controllers(cfg: DictConfig) -> dict[str, object]:
     """Assemble the controller set to compare on identical conditions.
 
-    PID is built from config (no checkpoint). Each RL controller is loaded only
-    when enabled *and* its ``model_path`` exists — an enabled-but-missing model
-    is warned about and skipped so the matrix still runs with what is available
-    (e.g. PID-only in CI). Never tune per controller: every controller here is
-    scored on the same cells and seeds.
+    Entries are resolved by :func:`resolve_controller_specs`, so arbitrarily
+    named variants of one algorithm (e.g. ``sac_naive`` / ``sac_robust`` with
+    ``type: sac``) can share a matrix run. PID kinds are built from config (no
+    checkpoint); each RL kind is loaded only when enabled *and* its
+    ``model_path`` exists — an enabled-but-missing model is warned about and
+    skipped so the matrix still runs with what is available (e.g. PID-only in
+    CI). Never tune per controller: every controller here is scored on the
+    same cells and seeds.
     """
-    spec = cfg.eval_robustness.controllers
     controllers: dict[str, object] = {}
-
-    if bool(spec.pid.enabled):
-        controllers["pid"] = PIDController(cfg)
-
-    for name in ("sac", "ppo"):
-        cspec = spec[name]
-        if not bool(cspec.enabled):
+    for spec in resolve_controller_specs(cfg.eval_robustness.controllers):
+        if not spec.enabled:
             continue
-        model_path = OmegaConf.select(cspec, "model_path", default=None)
-        if model_path and Path(str(model_path)).exists():
-            controllers[name] = _load_rl_agent(name, str(model_path))
+        if spec.kind == "pid":
+            controllers[spec.name] = PIDController(cfg)
+        elif spec.model_path and Path(spec.model_path).exists():
+            logger.info(
+                "loading %s controller (%s) from %s", spec.name, spec.kind, spec.model_path
+            )
+            controllers[spec.name] = _load_rl_agent(spec.kind, spec.model_path)
         else:
             logger.warning(
                 "controller %s enabled but model_path %r not found — skipping",
-                name,
-                model_path,
+                spec.name,
+                spec.model_path,
             )
     return controllers
 
