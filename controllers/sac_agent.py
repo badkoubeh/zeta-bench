@@ -96,6 +96,7 @@ class SACAgent:
 
         from utils.sb3_callbacks import WandbLoggingCallback
         from envs.rocket_landing_env import RocketLandingEnv
+        from envs.domain_randomization import wrap_if_enabled
 
         cfg = self._cfg
         a = cfg.agent
@@ -107,11 +108,18 @@ class SACAgent:
         gradient_steps = int(compute.gradient_steps) if (compute and "gradient_steps" in compute) else int(a.gradient_steps)
         seed = int(cfg.seed)
 
+        # Training env only: optionally apply domain randomisation so the policy
+        # learns across the disturbance distribution. The eval env below stays
+        # nominal so model selection is on the clean task.
         if n_envs > 1:
-            vec_env = make_vec_env(lambda: RocketLandingEnv(cfg), n_envs=n_envs, seed=seed)
+            vec_env = make_vec_env(
+                lambda: wrap_if_enabled(RocketLandingEnv(cfg), cfg), n_envs=n_envs, seed=seed
+            )
         else:
             vec_env = make_vec_env(
-                lambda: env if env is not None else RocketLandingEnv(cfg),
+                lambda: wrap_if_enabled(
+                    env if env is not None else RocketLandingEnv(cfg), cfg
+                ),
                 n_envs=1,
                 seed=seed,
             )

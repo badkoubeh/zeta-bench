@@ -28,11 +28,19 @@ reward:
   potential:
     lateral_weight: 0.5
     altitude_weight: 0.2
-    velocity_weight: 1.0
-    vertical_velocity_weight: 1.5
+    velocity_weight: 1.5
+    vertical_velocity_weight: 3.0
     tilt_weight: 1.0
     angular_rate_weight: 0.5
-    clip_abs: 10.0                # clip |Phi| for numerical stability
+    # Terminal-velocity shaping: an extra penalty on speed that activates near the
+    # pad via gate = exp(-altitude / ground_gate_altitude_m) (≈1 at touchdown,
+    # decaying with altitude). It pushes the agent to bleed off speed during the
+    # final approach/flare — targeting the residual ~8 m/s touchdown that misses
+    # the 3 m/s success threshold. Zero at the landed state, so it stays PBRS-safe
+    # (reward optimum unchanged) and only sharpens the gradient toward a soft touchdown.
+    landing_speed_weight: 4.0
+    ground_gate_altitude_m: 15.0
+    clip_abs: 10.0
 
   # Secondary control regularisers. Kept small so they make an already-good
   # landing efficient/smooth rather than discouraging necessary thrust authority.
@@ -50,7 +58,7 @@ reward:
   terminal:
     success_bonus: 500.0
     crash_base_penalty: 50.0            # flat floor for any crash
-    touchdown_speed_weight: 30.0        # × normalised touchdown speed^2
+    touchdown_speed_weight: 45.0        # × normalised touchdown speed^2
     touchdown_tilt_weight: 40.0         # × normalised touchdown tilt^2
     touchdown_angular_rate_weight: 20.0 # × normalised touchdown angular rate^2
     touchdown_lateral_weight: 10.0      # × normalised lateral error^2
