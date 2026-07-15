@@ -27,7 +27,7 @@ from __future__ import annotations
 
 import numpy as np
 from numpy.typing import NDArray
-from omegaconf import DictConfig
+from omegaconf import DictConfig, OmegaConf
 
 from utils.normalisation import FixedObsScaler
 
@@ -50,6 +50,24 @@ class PIDController:
         self._Ki_alt = float(alt.Ki)
         self._Kd_alt = float(alt.Kd)
         self._target_descent_mps = float(alt.target_descent_mps)
+
+        # Flare / glideslope: an altitude-scheduled descent target replaces the
+        # constant target when enabled. Commanding a faster descent up high and
+        # progressively slowing toward the pad lets short drops settle to a soft
+        # touchdown too — a constant target needs settling runway it lacks on a
+        # 30 m drop, which is why the constant-target loop only lands the tall
+        # (high-difficulty) approaches. target = clip(gain*altitude, min, max).
+        flare = OmegaConf.select(cfg, "pid_controller.altitude.flare", default=None)
+        self._flare_enabled = bool(
+            OmegaConf.select(flare, "enabled", default=False)
+        ) if flare is not None else False
+        self._flare_gain = float(OmegaConf.select(flare, "gain_per_m", default=0.0))
+        self._flare_min = float(
+            OmegaConf.select(flare, "min_descent_mps", default=self._target_descent_mps)
+        )
+        self._flare_max = float(
+            OmegaConf.select(flare, "max_descent_mps", default=self._target_descent_mps)
+        )
 
         # Anti-windup
         self._integral_max = float(cfg.pid_controller.integral_max)
@@ -87,8 +105,18 @@ class PIDController:
         raw = self._scaler.unscale(obs)
         vz = float(raw[5])  # NED z velocity, positive = descending
 
+        # Descent-rate setpoint: altitude-scheduled flare when enabled, else a
+        # constant target. NED z < 0 above the pad, so altitude = -z.
+        if self._flare_enabled:
+            altitude = max(0.0, -float(raw[2]))
+            target_descent = float(
+                np.clip(self._flare_gain * altitude, self._flare_min, self._flare_max)
+            )
+        else:
+            target_descent = self._target_descent_mps
+
         # Altitude / descent-velocity PID
-        vz_error = vz - self._target_descent_mps
+        vz_error = vz - target_descent
         self._alt_integral += vz_error * self._dt
         self._alt_integral = float(
             np.clip(self._alt_integral, -self._integral_max, self._integral_max)
