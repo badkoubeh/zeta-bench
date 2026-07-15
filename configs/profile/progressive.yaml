@@ -23,7 +23,7 @@ gate:
   # Stage B starts only from a checkpoint clearing the threshold.
   threshold: 0.90                  # minimum success rate
   n_episodes: 100
-  task_difficulty: 1.0             # gate difficulty; also pins extension-run training difficulty
+  task_difficulty: 0.5             # gate difficulty; also pins extension-run training difficulty
   seed_offset: 10_000              # gate seed = seed + offset (disjoint from train / eval-callback streams)
   candidates: [best_model.zip, model.zip]   # priority order (breaks exact ties)
   max_extensions: 2                # bounded Stage A retries before aborting the agent's chain
@@ -33,7 +33,7 @@ stage_b:
   # Robust stage: resume the gate-selected checkpoint, pin the task at full
   # difficulty, ramp domain-randomization severity 0->1. Disturbance ranges
   # come from env.domain_randomization in configs/env.yaml.
-  total_steps: 1_000_000
+  total_steps: 2_000_000
   task_difficulty: 1.0             # fixed-curriculum difficulty during Stage B
   dr_ramp_fraction: 0.8            # severity ramp as a fraction of the per-env budget
   eval_every_n_steps: 50_000
