@@ -53,7 +53,7 @@ Both land within the 3.0 m/s touchdown gate.
 |---|---|---|
 | ![pid](results/pid_baseline.gif) | ![sac](results/sac_landing.gif) | ![ppo](results/ppo_landing.gif) |
 
-[📊 Full wandb report →](https://wandb.ai/badkoubeh/zeta-bench)
+[📊 Full wandb dashboard →](https://wandb.ai/b-badkoubeh-baudcomatics/zeta-bench)
 
 ---
 
@@ -225,7 +225,10 @@ the task harder.
 > policies `sac_naive_v3_p03` and `ppo_naive_v4_p03` (γ=0.999, staged
 > curriculum warm-start to 0.3) — all three **100% at difficulty 0.4 nominal**.
 > 100 episodes/cell, seed 42, touchdown threshold 3.0 m/s. Source:
-> `results/robustness_matrix.csv` · heatmap: `results/robustness_heatmap.png`.
+> [`results/robustness_matrix.csv`](results/robustness_matrix.csv) · heatmap:
+> [`results/robustness_heatmap.png`](results/robustness_heatmap.png).
+
+![Robustness heatmap — landing success rate per disturbance type × severity cell, one panel per controller](results/robustness_heatmap.png)
 
 Mean landing success across the 32-cell disturbance grid:
 

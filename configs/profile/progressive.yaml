@@ -10,7 +10,8 @@ name: progressive
 agents: [sac, ppo]   # trained sequentially — n_envs already saturates a CPU host
 
 stage_a:
-  # Naive stage: task-difficulty curriculum ramps 0->1, domain randomization off.
+  # Naive stage: task-di:q
+  fficulty curriculum ramps 0->1, domain randomization off.
   total_steps: 2_000_000
   curriculum_ramp_fraction: 0.8    # fraction of the per-env budget spent ramping 0->1
   eval_every_n_steps: 50_000       # model-selection eval cadence (global steps)
