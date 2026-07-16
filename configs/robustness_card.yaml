@@ -1,0 +1,41 @@
+# Per-controller robustness cards: within-controller (e.g. nominal-trained vs
+# robust-trained) degradation curves + break-point severities, built from
+# graduated-matrix CSVs. Entry point: experiments/robustness_card.py
+#
+# CLI examples
+# ------------
+#   python experiments/robustness_card.py
+#   python experiments/robustness_card.py robustness_card.gate=0.90
+#   python experiments/robustness_card.py \
+#     'robustness_card.csv_paths=[results/robustness_matrix.csv]'
+
+defaults:
+  - _self_
+
+robustness_card:
+  # Deployment gate on success rate: the break-point is the smallest tested
+  # severity whose mean success rate falls below this value.
+  gate: 0.95
+
+  # Graduated-matrix CSVs to merge. Variant runs (e.g. a robust retrain) are
+  # written to their own CSV so the primary matrix is never overwritten;
+  # missing files are skipped with a warning so cards run with what exists.
+  csv_paths:
+    - results/robustness_matrix.csv
+    - results/robustness_matrix_robust.csv
+
+  # Where card PNGs + JSON summaries land ({card}.png / {card}.json).
+  out_dir: results/cards
+
+  # One card per controller: {variant label: controller name in the CSVs}.
+  # Variants absent from the loaded rows are skipped, so cards degrade
+  # gracefully before every variant has been trained and evaluated.
+  cards:
+    pid:
+      tuned: pid
+    sac:
+      nominal-trained: sac
+      robust: sac_robust
+    ppo:
+      nominal-trained: ppo
+      robust: ppo_robust
