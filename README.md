@@ -31,7 +31,7 @@ landing, bipedal locomotion) — see [Environments](#environments).
 | Environment | Status | Description |
 |---|---|---|
 | **Rocket landing** (`RocketLanding-v0`) | ✅ Available | 6-DOF rigid-body powered descent; the reference environment the rest of this README documents. |
-| eVTOL / UAV precision landing | 🧭 Roadmap | A second flight-domain environment to validate shared abstractions and cross-domain robustness comparison. |
+| eVTOL / UAV precision landing | 🧭 Roadmap (post-v1.0) | A second flight-domain environment to validate shared abstractions and cross-domain robustness comparison — sequenced after the rocket-landing verdict is hardened (see [Interpretation & honest caveats](#interpretation--honest-caveats)). |
 | Bipedal locomotion under perturbation | 🧭 Roadmap | Legged locomotion reference for disturbance characterization in contact-rich dynamics. |
 | Your environment | 🧭 Roadmap | See [`CONTRIBUTING.md`](CONTRIBUTING.md) → *Adding an environment*. |
 
@@ -296,12 +296,31 @@ point of a credible benchmark:
 **What this does and doesn't establish.** It establishes that ZetaBench delivers
 a *fair, reproducible, cross-paradigm* verdict — here, *"a well-tuned PID is hard
 to beat."* It does **not** establish that RL is weak; it shows this task is
-under-specified for RL's strengths. The right response is to make the *control*
-task actually require them — precision (on-pad) landing with 3-axis guidance,
-partial observability, actuator failures, and the roadmap's contact-rich
-environments (eVTOL precision landing, bipedal locomotion) — **while keeping the
-classical baseline**, since a retained, honest baseline is exactly what makes any
-future "RL wins" credible.
+under-specified for RL's strengths, and that the RL agents compared here are
+*naive* — trained on nominal dynamics, never on the disturbance distribution.
+
+**What comes next (in order).** Rather than replicating this verdict in a second
+environment, the next work hardens it in this one
+(see `docs/PLAN.md` → *Phase 3.5 — Verdict Hardening*):
+
+1. **Naive-vs-robust RL on the same matrix** — retrain SAC/PPO from scratch with
+   the existing training-time domain randomisation and re-run the identical
+   matrix. This directly tests whether "RL loses because it was not trained for
+   these scenarios," which the current results assume but do not test.
+2. **Test the sensor-noise "architectural" claim** — a frame-stacked or recurrent
+   policy trained with observation noise; either outcome is a finding.
+3. **Graduate the combined-disturbance axis** — the max-only combined cell (0%
+   for all) says *that* everything breaks, not *at what magnitude*.
+4. **Precision (on-pad) landing with 3-axis guidance**, so the task actually
+   requires RL/MPC-class capability — **while keeping the classical baseline**
+   (extended with a lateral cascade), since a retained, honest baseline is
+   exactly what makes any future "RL wins" credible.
+5. **LQR/MPC baseline** — the closest analogue to deployed practice (SOCP-style
+   descent guidance) and the completion of the "any controller" claim.
+
+The roadmap's contact-rich environments (eVTOL precision landing, bipedal
+locomotion) follow after v1.0, once the abstractions they would reuse are
+validated by a hardened verdict rather than a confounded one.
 
 ---
 
