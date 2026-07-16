@@ -67,20 +67,13 @@ Both land within the 3.0 m/s touchdown gate.
 > intended; see **[Interpretation & honest
 > caveats](#interpretation--honest-caveats)**.
 
-> **Status (2026-07-13).** The numbers below cover all three controllers —
-> the PID baseline (`pid_moderate_eval`) and the curriculum-trained
-> vertical-descent agents SAC (`sac_naive_v3_p03`) and PPO (`ppo_naive_v4_p03`),
-> both γ=0.999, trained from scratch under the current reward via a staged
-> warm-start ladder (fixed difficulty 0.1→0.2→0.3 for SAC; 0.0→0.1→0.2→0.3 for
-> PPO). All results share one eval protocol (100 episodes/cell, seed 42,
-> touchdown threshold 3.0 m/s) so the three controllers are directly
-> comparable, evaluated under **nominal** conditions across graduated task
-> difficulty.
->
-> These agents land **100% within their ≤0.3 training envelope and hold up well
-> beyond it, with zero out-of-bounds at every difficulty** — the fly-up failure
-> mode that capped earlier runs is gone, and touchdown speeds stay well inside
-> the 3.0 m/s gate.
+> **Protocol.** All three controllers share one evaluation protocol — 100
+> episodes per cell, fixed seed (42), 3.0 m/s touchdown gate — so the results
+> are directly comparable. PID is a fixed-gain classical baseline (no
+> training); SAC and PPO are curriculum-trained to task difficulty 0.3
+> (γ=0.999, staged warm-start) under the same reward these tables report. The
+> tables in this section evaluate under **nominal** conditions across graduated
+> task difficulty. Results current as of July 2026.
 >
 > **Robustness axis.** The tables here vary *task difficulty*. A separate
 > **[Robustness under graduated disturbances](#robustness-under-graduated-disturbances-fair-envelope)**
@@ -111,29 +104,23 @@ The agent is **~100% within its training envelope (≤0.4)** and degrades
 gracefully beyond it — still 97% at 0.6, 92% at 0.8, and 86% at the hardest
 full-envelope approach despite never training there. Crucially, **out-of-bounds
 is 0 at every level** and touchdown speed stays well under the 3.0 m/s gate
-(≤2.5 m/s throughout): the rare failures are gentle soft-braking crashes, not
-the catastrophic fly-out that capped earlier runs.
+(≤2.5 m/s throughout): the rare failures are gentle soft-braking crashes, never
+loss-of-control fly-out.
 
-**What moved the needle.** Raising the discount factor from γ=0.99 to **γ=0.999**
-— so the effective horizon (~1000 steps) exceeds typical episode length — made
-the terminal landing / out-of-bounds reward visible to the optimizer and
-eliminated a fly-up→out-of-bounds local optimum that capped earlier runs. A
-staged curriculum warm-start (v11 @0.1 → v12 @0.2 → v13 @0.3) then lifted
-success and produced markedly more efficient trajectories:
-
-| Metric @ task_difficulty 0.2 | v11 (trained @0.1) | v12 (trained @0.2) | v13 (trained @0.3) |
-|---|---|---|---|
-| Success rate | 60% | 89% | **100%** |
-| Out-of-bounds | 0% | 0% | **0%** |
-| Touchdown speed | 3.09 m/s | 2.76 m/s | **2.26 m/s** |
-| Episode length | 1178 | 341 | **254** |
-| Fuel used | 49% | 15% | **12%** |
+**Training notes.** Two choices mattered. A discount factor of **γ=0.999** puts
+the effective horizon (~1000 steps) beyond typical episode length, keeping the
+terminal landing / out-of-bounds reward visible to the optimizer and closing off
+a fly-up→out-of-bounds local optimum that otherwise caps success. A staged
+curriculum warm-start (fixed difficulty 0.1 → 0.2 → 0.3) then makes the policy
+markedly more efficient: at difficulty 0.2, versus a single-stage policy, it
+lifts success from 60% to 100% while cutting episode length from ~1180 to ~250
+steps and fuel burn from 49% to 12%.
 
 ### PPO (nominal)
 
-PPO was trained with the identical γ=0.999 fix and the same staged
-curriculum warm-start ladder (v1 @0.0 → v2 @0.1 → v3 @0.2 → v4 @0.3),
-using the same evaluation protocol as SAC.
+PPO was trained with the identical γ=0.999 setting and the same staged
+curriculum warm-start (fixed difficulty 0.0 → 0.1 → 0.2 → 0.3), and evaluated
+under the same protocol as SAC.
 
 | Task difficulty [0,1] | Success | Crash | OOB | Touchdown (m/s) | Fuel used (%) | Episode len |
 |---|---|---|---|---|---|---|
@@ -148,8 +135,8 @@ using the same evaluation protocol as SAC.
 | 1.0 (hardest) | 63% | 16 | 0 | 3.47 | 34% | 792 |
 
 PPO holds **100% through difficulty 0.6** — further out-of-envelope than SAC —
-then degrades on the largest approaches. Like SAC it now has **zero
-out-of-bounds at every level** (the fly-up failure is gone); the shortfall at
+then degrades on the largest approaches. Like SAC it shows **zero
+out-of-bounds at every level**; the shortfall at
 0.8–1.0 is dominated by **timeouts on long, fuel-limited descents** (episode
 length and fuel climb sharply — 792 steps / 34% fuel at 1.0) rather than
 loss-of-control.
@@ -161,8 +148,8 @@ a single descent-rate loop with an **altitude-scheduled flare** (target descent
 = 0.10 · altitude, clamped to [1.0, 8.0] m/s) so it slows progressively toward
 the pad. Properly tuned, it lands the **entire envelope at 100%** with soft,
 monotonically decreasing touchdown speeds and zero out-of-bounds / zero timeout.
-(A constant-target loop without the flare cannot bleed to the gate on a short
-30 m drop — the earlier 0%-at-0.0 result was a tuning artifact, not a limit.)
+(The flare matters: a constant-target loop cannot bleed enough speed to reach
+the gate on a short 30 m drop.)
 
 | Task difficulty [0,1] | Success | Crash | OOB | Touchdown (m/s) | Fuel used (%) | Episode len |
 |---|---|---|---|---|---|---|
@@ -178,10 +165,9 @@ monotonically decreasing touchdown speeds and zero out-of-bounds / zero timeout.
 
 ### PID vs SAC vs PPO (nominal, matched conditions)
 
-The two families are no longer "opposite profiles." With an honestly-tuned PID
-(altitude flare), **PID lands 100% across the whole envelope**, matching the RL
-agents in their training region and holding at the hardest approaches where the
-RL policies fall off:
+With an honestly-tuned PID (altitude flare), **PID lands 100% across the whole
+envelope**, matching the RL agents in their training region and holding at the
+hardest approaches where the RL policies fall off:
 
 - **RL agents (SAC, PPO)** are curriculum-trained up to difficulty 0.3, so they
   are ~100% inside their envelope and degrade on the harder, unseen approaches
@@ -216,15 +202,14 @@ the task harder.
 
 ### Robustness under graduated disturbances (fair envelope)
 
-> **Status (2026-07-13).** All three controllers face the graduated
-> **disturbance matrix** on identical fixed-seed conditions: the
-> initial-condition envelope is pinned at **task difficulty 0.4** (the RL
-> agents' training envelope, so the comparison is fair) and only disturbance
-> severity varies. PID is the flare-tuned baseline (see [PID
-> baseline](#pid-baseline-nominal)); the RL agents are the retrained naive
-> policies `sac_naive_v3_p03` and `ppo_naive_v4_p03` (γ=0.999, staged
-> curriculum warm-start to 0.3) — all three **100% at difficulty 0.4 nominal**.
-> 100 episodes/cell, seed 42, touchdown threshold 3.0 m/s. Source:
+> **Protocol.** All three controllers face the graduated **disturbance matrix**
+> on identical fixed-seed conditions: the initial-condition envelope is pinned
+> at **task difficulty 0.4** (inside the RL agents' training envelope, so the
+> comparison is fair) and only disturbance severity varies. PID is the
+> flare-tuned baseline above; SAC and PPO are the same curriculum-trained
+> agents — all three are **100% at difficulty 0.4 under nominal conditions**
+> before disturbances are applied. 100 episodes/cell, seed 42, 3.0 m/s
+> touchdown gate. Source:
 > [`results/robustness_matrix.csv`](results/robustness_matrix.csv) · heatmap:
 > [`results/robustness_heatmap.png`](results/robustness_heatmap.png).
 
