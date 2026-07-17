@@ -27,6 +27,10 @@ multirun/
 *.ckpt
 *.pt
 *.pth
+# Curated README media — the only committed files under results/
+!results/*.gif
+!results/robustness_heatmap.png
+!results/robustness_matrix.csv
 
 # Testing & linting caches
 .coverage

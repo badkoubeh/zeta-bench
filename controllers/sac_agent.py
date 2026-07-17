@@ -131,6 +131,18 @@ class SACAgent:
             logger.info("resuming SAC from checkpoint %s", resume_from)
             self._model = SAC.load(str(resume_from), env=vec_env, device=device)
 
+            # Apply the configured learning rate to the resumed model. SAC.load
+            # restores the checkpoint's own LR schedule, so an `agent.learning_rate`
+            # override is otherwise silently ignored on resume — which blocks
+            # low-LR fine-tuning (e.g. a gentle domain-randomization adaptation
+            # that must adapt without overwriting the loaded landing policy).
+            from stable_baselines3.common.utils import get_schedule_fn
+
+            resume_lr = float(a.learning_rate)
+            self._model.learning_rate = resume_lr
+            self._model.lr_schedule = get_schedule_fn(resume_lr)
+            logger.info("resume learning_rate set to %g", resume_lr)
+
             # SAC.load restores only the policy/optimizer state — the replay
             # buffer is saved separately. Without it, num_timesteps is already
             # past learning_starts, so the first learn() step runs gradient

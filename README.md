@@ -31,7 +31,7 @@ landing, bipedal locomotion) — see [Environments](#environments).
 | Environment | Status | Description |
 |---|---|---|
 | **Rocket landing** (`RocketLanding-v0`) | ✅ Available | 6-DOF rigid-body powered descent; the reference environment the rest of this README documents. |
-| eVTOL / UAV precision landing | 🧭 Roadmap | A second flight-domain environment to validate shared abstractions and cross-domain robustness comparison. |
+| eVTOL / UAV precision landing | 🧭 Roadmap (post-v1.0) | A second flight-domain environment to validate shared abstractions and cross-domain robustness comparison — sequenced after the rocket-landing verdict is hardened (see [Interpretation & honest caveats](#interpretation--honest-caveats)). |
 | Bipedal locomotion under perturbation | 🧭 Roadmap | Legged locomotion reference for disturbance characterization in contact-rich dynamics. |
 | Your environment | 🧭 Roadmap | See [`CONTRIBUTING.md`](CONTRIBUTING.md) → *Adding an environment*. |
 
@@ -45,31 +45,40 @@ rocket environment is the worked example to follow.
 
 ## Demo
 
-<!-- Fill in after Phase 3 -->
-| PID Baseline | SAC (adversarially trained) |
-|---|---|
-| ![pid](results/pid_baseline.gif) | ![robust](results/robust_agent.gif) |
+Best-episode powered descents at task difficulty 0.4 (a ~40 m, off-pad
+approach), rendered with `experiments/evaluate_{rl,pid}.py … render=true`.
+Both land within the 3.0 m/s touchdown gate.
 
-[📊 Full wandb report →](https://wandb.ai/badkoubeh/zeta-bench)
+| PID baseline | SAC (curriculum-trained) | PPO (curriculum-trained) |
+|---|---|---|
+| ![pid](results/pid_baseline.gif) | ![sac](results/sac_landing.gif) | ![ppo](results/ppo_landing.gif) |
+
+[📊 Full wandb dashboard →](https://wandb.ai/b-badkoubeh-baudcomatics/zeta-bench)
 
 ---
 
 ## Key Results
 
-> **Status (2026-07-01).** The numbers below cover all three controllers —
-> the PID baseline (`pid_moderate_eval`), and the curriculum-trained
-> vertical-descent agents SAC (`sac_vertical_v13`) and PPO
-> (`ppo_vertical_v4`), both γ=0.999 — under **nominal** conditions across
-> graduated task difficulty. All results share one eval protocol
-> (100 episodes/cell, seed 42, touchdown threshold 3.0 m/s) so the three
-> controllers are directly comparable.
+> **Honest headline.** On this vertical-descent task a **well-tuned classical
+> PID matches or beats deep RL** — it ties SAC across the physical-disturbance
+> matrix and leads overall (PID 82% vs SAC 65% vs PPO 60% mean success). RL does
+> not "win" here because the task, as scored, is descent-rate regulation that
+> does not require RL-class capability. That is the benchmark working as
+> intended; see **[Interpretation & honest
+> caveats](#interpretation--honest-caveats)**.
+
+> **Protocol.** All three controllers share one evaluation protocol — 100
+> episodes per cell, fixed seed (42), 3.0 m/s touchdown gate — so the results
+> are directly comparable. PID is a fixed-gain classical baseline (no
+> training); SAC and PPO are curriculum-trained to task difficulty 0.3
+> (γ=0.999, staged warm-start) under the same reward these tables report. The
+> tables in this section evaluate under **nominal** conditions across graduated
+> task difficulty. Results current as of July 2026.
 >
-> These numbers are for the checkpoints named above, which were trained
-> **before** the touchdown-speed penalty was strengthened and the near-pad
-> landing-speed shaping was added (see [Reward](#reward)). They will be
-> regenerated once policies are retrained under the updated reward; expect the
-> RL agents' touchdown speeds to tighten, especially in the degraded high-task-
-> difficulty rows.
+> **Robustness axis.** The tables here vary *task difficulty*. A separate
+> **[Robustness under graduated disturbances](#robustness-under-graduated-disturbances-fair-envelope)**
+> section below adds the orthogonal *disturbance* matrix (wind, mass, sensor
+> noise) at a fixed, fair difficulty-0.4 envelope using the same agents.
 
 ### Landing Success Rate vs Task Difficulty (SAC, nominal)
 
@@ -81,105 +90,222 @@ that probe its zero-shot generalization to harder, unseen approaches.
 
 | Task difficulty [0,1] | Success | Crash | OOB | Touchdown (m/s) | Fuel used (%) | Episode len |
 |---|---|---|---|---|---|---|
-| 0.0 (near-vertical) | **100%** | 0 | 0 | 2.18 | 11% | 257 |
-| 0.1 | **100%** | 0 | 0 | 2.25 | 11% | 251 |
-| 0.2 | **100%** | 0 | 0 | 2.26 | 12% | 254 |
-| 0.3 (train ceiling) | **100%** | 0 | 0 | 2.28 | 12% | 258 |
-| 0.4 | 99% | 1 | 0 | 2.29 | 12% | 263 |
-| 0.5 | 92% | 8 | 0 | 2.35 | 13% | 271 |
-| 0.6 | 84% | 15 | 1 | 3.91 | 14% | 280 |
-| 0.8 | 60% | 40 | 0 | 7.69 | 15% | 289 |
-| 1.0 (hardest) | 52% | 46 | 2 | 10.27 | 16% | 310 |
+| 0.0 (near-vertical) | **100%** | 0 | 0 | 2.48 | 13% | 291 |
+| 0.1 | **100%** | 0 | 0 | 2.14 | 13% | 282 |
+| 0.2 | 99% | 1 | 0 | 2.17 | 13% | 283 |
+| 0.3 (train ceiling) | **100%** | 0 | 0 | 1.97 | 13% | 291 |
+| 0.4 | **100%** | 0 | 0 | 1.92 | 14% | 296 |
+| 0.5 | 98% | 2 | 0 | 1.94 | 14% | 300 |
+| 0.6 | 97% | 3 | 0 | 1.90 | 15% | 305 |
+| 0.8 | 92% | 8 | 0 | 1.97 | 15% | 314 |
+| 1.0 (hardest) | 86% | 14 | 0 | 2.23 | 16% | 325 |
 
-The agent is **100% within its training envelope (≤0.3)** and degrades
-gracefully beyond it — still ≥92% at 0.5 and 84% at 0.6 despite never training
-there. Failures past the breaking point are **soft-braking crashes** (touchdown
-speed rises to 7–10 m/s), not the catastrophic fly-out that capped earlier runs:
-out-of-bounds stays ≤2/100 at every level.
+The agent is **~100% within its training envelope (≤0.4)** and degrades
+gracefully beyond it — still 97% at 0.6, 92% at 0.8, and 86% at the hardest
+full-envelope approach despite never training there. Crucially, **out-of-bounds
+is 0 at every level** and touchdown speed stays well under the 3.0 m/s gate
+(≤2.5 m/s throughout): the rare failures are gentle soft-braking crashes, never
+loss-of-control fly-out.
 
-**What moved the needle.** Raising the discount factor from γ=0.99 to **γ=0.999**
-— so the effective horizon (~1000 steps) exceeds typical episode length — made
-the terminal landing / out-of-bounds reward visible to the optimizer and
-eliminated a fly-up→out-of-bounds local optimum that capped earlier runs. A
-staged curriculum warm-start (v11 @0.1 → v12 @0.2 → v13 @0.3) then lifted
-success and produced markedly more efficient trajectories:
-
-| Metric @ task_difficulty 0.2 | v11 (trained @0.1) | v12 (trained @0.2) | v13 (trained @0.3) |
-|---|---|---|---|
-| Success rate | 60% | 89% | **100%** |
-| Out-of-bounds | 0% | 0% | **0%** |
-| Touchdown speed | 3.09 m/s | 2.76 m/s | **2.26 m/s** |
-| Episode length | 1178 | 341 | **254** |
-| Fuel used | 49% | 15% | **12%** |
+**Training notes.** Two choices mattered. A discount factor of **γ=0.999** puts
+the effective horizon (~1000 steps) beyond typical episode length, keeping the
+terminal landing / out-of-bounds reward visible to the optimizer and closing off
+a fly-up→out-of-bounds local optimum that otherwise caps success. A staged
+curriculum warm-start (fixed difficulty 0.1 → 0.2 → 0.3) then makes the policy
+markedly more efficient: at difficulty 0.2, versus a single-stage policy, it
+lifts success from 60% to 100% while cutting episode length from ~1180 to ~250
+steps and fuel burn from 49% to 12%.
 
 ### PPO (nominal)
 
-PPO was trained with the identical γ=0.999 fix and the same staged
-curriculum warm-start ladder (v1 @0.0 → v2 @0.1 → v3 @0.2 → v4 @0.3),
-using the same evaluation protocol as SAC.
+PPO was trained with the identical γ=0.999 setting and the same staged
+curriculum warm-start (fixed difficulty 0.0 → 0.1 → 0.2 → 0.3), and evaluated
+under the same protocol as SAC.
 
 | Task difficulty [0,1] | Success | Crash | OOB | Touchdown (m/s) | Fuel used (%) | Episode len |
 |---|---|---|---|---|---|---|
-| 0.0 (near-vertical) | **100%** | 0 | 0 | 2.17 | 13% | 299 |
-| 0.1 | **100%** | 0 | 0 | 2.16 | 14% | 305 |
-| 0.2 | **100%** | 0 | 0 | 2.07 | 14% | 312 |
-| 0.3 (train ceiling) | **100%** | 0 | 0 | 1.94 | 15% | 321 |
-| 0.4 | 97% | 2 | 1 | 1.80 | 16% | 350 |
-| 0.5 | 88% | 1 | 11 | 1.83 | 24% | 551 |
-| 0.6 | 74% | 2 | 24 | 2.13 | 34% | 800 |
-| 0.8 | 52% | 3 | 45 | 2.70 | 50% | 1211 |
-| 1.0 (hardest) | 41% | 5 | 52 | 3.62 | 57% | 1386 |
+| 0.0 (near-vertical) | **100%** | 0 | 0 | 2.41 | 12% | 266 |
+| 0.1 | 99% | 1 | 0 | 2.42 | 12% | 272 |
+| 0.2 | **100%** | 0 | 0 | 2.36 | 13% | 281 |
+| 0.3 (train ceiling) | **100%** | 0 | 0 | 2.18 | 13% | 290 |
+| 0.4 | 99% | 1 | 0 | 2.11 | 14% | 299 |
+| 0.5 | **100%** | 0 | 0 | 1.94 | 15% | 310 |
+| 0.6 | **100%** | 0 | 0 | 1.82 | 15% | 321 |
+| 0.8 | 85% | 3 | 0 | 1.91 | 26% | 588 |
+| 1.0 (hardest) | 63% | 16 | 0 | 3.47 | 34% | 792 |
+
+PPO holds **100% through difficulty 0.6** — further out-of-envelope than SAC —
+then degrades on the largest approaches. Like SAC it shows **zero
+out-of-bounds at every level**; the shortfall at
+0.8–1.0 is dominated by **timeouts on long, fuel-limited descents** (episode
+length and fuel climb sharply — 792 steps / 34% fuel at 1.0) rather than
+loss-of-control.
 
 ### PID baseline (nominal)
 
-The classical PID controller has **fixed gains** — no training, no curriculum.
-Evaluated on the same protocol, its profile is the mirror image of the RL
-agents: every failure is a **touchdown-speed crash** (0 out-of-bounds, 0
-timeout at every level). On the easy short-drop approaches it cannot bleed
-below the 3.0 m/s gate (3.55 m/s at 0.0), but the taller full-envelope
-approaches give it the vertical distance to settle to 2.10 m/s.
+The classical PID controller has **fixed gains** — no training, no curriculum —
+a single descent-rate loop with an **altitude-scheduled flare** (target descent
+= 0.10 · altitude, clamped to [1.0, 8.0] m/s) so it slows progressively toward
+the pad. Properly tuned, it lands the **entire envelope at 100%** with soft,
+monotonically decreasing touchdown speeds and zero out-of-bounds / zero timeout.
+(The flare matters: a constant-target loop cannot bleed enough speed to reach
+the gate on a short 30 m drop.)
 
 | Task difficulty [0,1] | Success | Crash | OOB | Touchdown (m/s) | Fuel used (%) | Episode len |
 |---|---|---|---|---|---|---|
-| 0.0 (near-vertical) | 0% | 100 | 0 | 3.55 | 11% | 264 |
-| 0.1 | 7% | 93 | 0 | 3.22 | 13% | 284 |
-| 0.2 | 58% | 42 | 0 | 2.94 | 14% | 308 |
-| 0.3 | 75% | 25 | 0 | 2.71 | 15% | 336 |
-| 0.4 | 81% | 19 | 0 | 2.53 | 17% | 367 |
-| 0.5 | 86% | 14 | 0 | 2.41 | 18% | 400 |
-| 0.6 | 92% | 8 | 0 | 2.31 | 20% | 435 |
-| 0.8 | 97% | 3 | 0 | 2.18 | 23% | 509 |
-| 1.0 (hardest) | **99%** | 1 | 0 | 2.10 | 26% | 586 |
+| 0.0 (near-vertical) | **100%** | 0 | 0 | 1.96 | 14% | 307 |
+| 0.1 | **100%** | 0 | 0 | 1.63 | 15% | 339 |
+| 0.2 | **100%** | 0 | 0 | 1.39 | 17% | 378 |
+| 0.3 | **100%** | 0 | 0 | 1.23 | 19% | 425 |
+| 0.4 | **100%** | 0 | 0 | 1.14 | 21% | 477 |
+| 0.5 | **100%** | 0 | 0 | 1.08 | 24% | 530 |
+| 0.6 | **100%** | 0 | 0 | 1.04 | 26% | 583 |
+| 0.8 | **100%** | 0 | 0 | 0.99 | 30% | 684 |
+| 1.0 (hardest) | **100%** | 0 | 0 | 0.96 | 34% | 775 |
 
 ### PID vs SAC vs PPO (nominal, matched conditions)
 
-The two families have **opposite difficulty profiles**, and they cross over
-around task difficulty 0.5–0.6:
+With an honestly-tuned PID (altitude flare), **PID lands 100% across the whole
+envelope**, matching the RL agents in their training region and holding at the
+hardest approaches where the RL policies fall off:
 
-- **RL agents (SAC, PPO)** are curriculum-trained from the vertical regime up
-  to 0.3, so they are perfect (100%) inside their training envelope and
-  degrade on the harder, unseen approaches. Their out-of-region failures are
-  fly-up **out-of-bounds** (PPO) or **soft-braking crashes** (SAC).
-- **PID** is fixed-gain and untuned for the short easy drop, so it is weakest
-  at low difficulty and strongest at the full envelope — all failures are
-  touchdown-speed crashes, never loss-of-control.
+- **RL agents (SAC, PPO)** are curriculum-trained up to difficulty 0.3, so they
+  are ~100% inside their envelope and degrade on the harder, unseen approaches
+  (SAC to 86%, PPO to 63% at 1.0) — with **zero out-of-bounds at every level**;
+  failures are gentle soft-braking **crashes** (SAC) or **timeouts** on long
+  fuel-limited descents (PPO), never fly-out.
+- **PID** with the flare lands the full envelope, and its touchdown speeds
+  actually *tighten* with difficulty (taller drops give more runway to settle):
+  1.96 m/s at 0.0 down to 0.96 m/s at 1.0.
 
 | Task difficulty [0,1] | PID success | SAC success | PPO success |
 |---|---|---|---|
-| 0.0 | 0% | **100%** | **100%** |
-| 0.1 | 7% | **100%** | **100%** |
-| 0.2 | 58% | **100%** | **100%** |
-| 0.3 | 75% | **100%** | **100%** |
-| 0.4 | 81% | **99%** | 97% |
-| 0.5 | 86% | 92% | 88% |
-| 0.6 | **92%** | 84% | 74% |
-| 0.8 | **97%** | 60% | 52% |
-| 1.0 | **99%** | 52% | 41% |
+| 0.0 | **100%** | **100%** | **100%** |
+| 0.1 | **100%** | **100%** | 99% |
+| 0.2 | **100%** | 99% | **100%** |
+| 0.3 | **100%** | **100%** | **100%** |
+| 0.4 | **100%** | **100%** | 99% |
+| 0.5 | **100%** | 98% | **100%** |
+| 0.6 | **100%** | 97% | **100%** |
+| 0.8 | **100%** | 92% | 85% |
+| 1.0 | **100%** | 86% | 63% |
 
-The RL agents win decisively below the crossover (the precision-landing regime
-the curriculum targets); PID wins on the high-energy approaches it was tuned
-for. Extending the RL curriculum past 0.3 is the clear lever to close the
-high-difficulty gap.
+The honest verdict on this vertical-descent task: a **well-tuned classical
+controller is a formidable baseline** — RL *matches* it inside the training
+envelope but does not beat it, and *trails* it on the hardest approaches. That
+is exactly the credibility check ZetaBench exists for — cross-paradigm
+comparison on fair, identical conditions, where "RL wins" must be earned, not
+assumed. Caveat: `task_difficulty` is **not** a controller-agnostic hardness
+axis — for the descent-rate PID, higher difficulty means *taller* drops and thus
+*more* settling runway, so its curve is flat where the RL curriculum axis makes
+the task harder.
+
+### Robustness under graduated disturbances (fair envelope)
+
+> **Protocol.** All three controllers face the graduated **disturbance matrix**
+> on identical fixed-seed conditions: the initial-condition envelope is pinned
+> at **task difficulty 0.4** (inside the RL agents' training envelope, so the
+> comparison is fair) and only disturbance severity varies. PID is the
+> flare-tuned baseline above; SAC and PPO are the same curriculum-trained
+> agents — all three are **100% at difficulty 0.4 under nominal conditions**
+> before disturbances are applied. 100 episodes/cell, seed 42, 3.0 m/s
+> touchdown gate. Source:
+> [`results/robustness_matrix.csv`](results/robustness_matrix.csv) · heatmap:
+> [`results/robustness_heatmap.png`](results/robustness_heatmap.png).
+
+![Robustness heatmap — landing success rate per disturbance type × severity cell, one panel per controller](results/robustness_heatmap.png)
+
+Mean landing success across the 32-cell disturbance grid:
+
+| Controller | Mean success (32 cells) |
+|---|---|
+| PID | **81.9%** |
+| SAC | 65.4% |
+| PPO | 59.7% |
+
+Broken down by disturbance family (mean success across that family's cells):
+
+| Disturbance | PID | SAC | PPO |
+|---|---|---|---|
+| none (nominal) | **100%** | **100%** | 99% |
+| wind (≤ 10 m/s) | **100%** | **100%** | **100%** |
+| mass offset (± 20%) | **100%** | **100%** | 29% |
+| sensor noise | **56%** | 9% | 18% |
+| combined (max) | 0% | 0% | 0% |
+
+**What the matrix shows.**
+
+- **On the physical disturbances, PID and SAC are both perfect.** PID (flare),
+  SAC, and PPO all land 100% under nominal and wind; PID and SAC also hold 100%
+  under ±20% mass offset. A well-tuned classical controller is fully competitive
+  with deep RL here — it does not concede the dynamics-disturbance regime.
+- **Sensor noise is the great equalizer.** PID leads (56%) but drops from its
+  clean-condition 100%; the RL policies are far more fragile (SAC 9%, PPO 18%) —
+  a feed-forward MLP reacting to one raw noisy frame has no temporal filtering.
+  An explicit eval-time observation filter *helped* PID but *broke* the RL
+  policies, so the gap is architectural, not a training-budget issue.
+- **A cross-paradigm split:** PPO collapses under mass offset (29%) where PID and
+  SAC are unaffected (100%) — same RL family, very different failure mode.
+- **The combined worst-case defeats every controller (0%).**
+- **Overall (mean of 32 cells): PID 82%, SAC 65%, PPO 60%.** With an honestly-
+  tuned baseline the lead is real, not an artifact — PID owns the physical-
+  disturbance rows outright and edges the sensor-noise rows. The credible
+  verdict: **no controller is universally robust** (sensor noise and the
+  combined cell are open for all), but on this task a well-tuned PID is the one
+  to beat.
+
+### Interpretation & honest caveats
+
+The headline result is deliberately unflattering to deep RL — and that is the
+point of a credible benchmark:
+
+- **A well-tuned classical controller matches or beats RL on this task.** PID
+  ties SAC across every physical-disturbance regime and leads overall. RL does
+  not "win" here — it *matches inside its training envelope and trails at the
+  extremes*.
+- **Because the task, as scored, does not require RL-class capability.** Success
+  is a soft *vertical* touchdown within 3 m/s; it does **not** require landing on
+  the pad, and in fact *no* controller here performs lateral guidance (all three
+  touch down ~15–40 m off-target). Reduced to descent-rate regulation, the
+  problem is one a tuned PID solves by design.
+- **`task_difficulty` is not a controller-agnostic hardness axis.** Higher
+  difficulty means taller drops → *more* settling runway for the descent-rate
+  PID, so its curve is flat/improving exactly where the RL-curriculum axis is
+  meant to get harder. The fixed-difficulty disturbance matrix is the cleaner
+  cross-paradigm axis.
+- **RL's one clear, structural weakness here is observation noise** — a
+  memoryless MLP acting on a raw noisy frame. That is a genuine architectural
+  finding, not a training-budget artifact: domain-randomization fine-tuning and
+  an eval-time observation filter both failed to close it.
+
+**What this does and doesn't establish.** It establishes that ZetaBench delivers
+a *fair, reproducible, cross-paradigm* verdict — here, *"a well-tuned PID is hard
+to beat."* It does **not** establish that RL is weak; it shows this task is
+under-specified for RL's strengths, and that the RL agents compared here are
+*naive* — trained on nominal dynamics, never on the disturbance distribution.
+
+**What comes next (in order).** Rather than replicating this verdict in a second
+environment, the next work hardens it in this one
+(see `docs/PLAN.md` → *Phase 3.5 — Verdict Hardening*):
+
+1. **Naive-vs-robust RL on the same matrix** — retrain SAC/PPO from scratch with
+   the existing training-time domain randomisation and re-run the identical
+   matrix. This directly tests whether "RL loses because it was not trained for
+   these scenarios," which the current results assume but do not test.
+2. **Test the sensor-noise "architectural" claim** — a frame-stacked or recurrent
+   policy trained with observation noise; either outcome is a finding.
+3. **Graduate the combined-disturbance axis** — the max-only combined cell (0%
+   for all) says *that* everything breaks, not *at what magnitude*.
+4. **Precision (on-pad) landing with 3-axis guidance**, so the task actually
+   requires RL/MPC-class capability — **while keeping the classical baseline**
+   (extended with a lateral cascade), since a retained, honest baseline is
+   exactly what makes any future "RL wins" credible.
+5. **LQR/MPC baseline** — the closest analogue to deployed practice (SOCP-style
+   descent guidance) and the completion of the "any controller" claim.
+
+The roadmap's contact-rich environments (eVTOL precision landing, bipedal
+locomotion) follow after v1.0, once the abstractions they would reuse are
+validated by a hardened verdict rather than a confounded one.
 
 ---
 
