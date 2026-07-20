@@ -1,0 +1,83 @@
+{
+  "card": "sac",
+  "gate": 0.95,
+  "variants": {
+    "nominal-trained": {
+      "controller": "sac",
+      "nominal": 1.0,
+      "combined_max": 0.0,
+      "families": {
+        "wind": {
+          "curve": [
+            [
+              0.0,
+              1.0
+            ],
+            [
+              2.0,
+              0.998
+            ],
+            [
+              5.0,
+              1.0
+            ],
+            [
+              10.0,
+              0.9960000000000001
+            ]
+          ],
+          "break_point": null,
+          "max_tested": 10.0
+        },
+        "mass": {
+          "curve": [
+            [
+              -0.2,
+              0.99
+            ],
+            [
+              -0.1,
+              1.0
+            ],
+            [
+              0.0,
+              1.0
+            ],
+            [
+              0.1,
+              1.0
+            ],
+            [
+              0.2,
+              1.0
+            ]
+          ],
+          "break_point": null,
+          "max_tested": 0.2
+        },
+        "sensor_noise": {
+          "curve": [
+            [
+              0.0,
+              0.49
+            ],
+            [
+              0.01,
+              0.0
+            ],
+            [
+              0.05,
+              0.0
+            ],
+            [
+              0.1,
+              0.0
+            ]
+          ],
+          "break_point": 0.0,
+          "max_tested": 0.1
+        }
+      }
+    }
+  }
+}

@@ -27,10 +27,15 @@ multirun/
 *.ckpt
 *.pt
 *.pth
-# Curated README media — the only committed files under results/
+# Curated README media + full results report — the only committed files under results/
+!results/README.md
 !results/*.gif
 !results/robustness_heatmap.png
 !results/robustness_matrix.csv
+!results/cards/
+results/cards/*
+!results/cards/*.png
+!results/cards/*.json
 
 # Testing & linting caches
 .coverage
@@ -54,8 +59,13 @@ Thumbs.db
 # Local AI/editor tool state
 .claude/
 
-# Working docs / personal notes (not part of the repo)
-docs/
+# Working docs / personal notes (not part of the repo).
+# Ignore contents (not the directory itself) so specific public docs can be
+# re-included below — git does not descend into fully-ignored directories.
+docs/*
+!docs/usage.md
+!docs/env_config_reference.md
+!docs/reward_engineering.md
 
 # Jupyter
 .ipynb_checkpoints/
