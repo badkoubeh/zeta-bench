@@ -1,8 +1,9 @@
 # ZetaBench
 
-![CI](https://github.com/badkoubeh/zeta-bench/actions/workflows/ci.yml/badge.svg)
+[![CI](https://github.com/badkoubeh/zeta-bench/actions/workflows/docker.yml/badge.svg)](https://github.com/badkoubeh/zeta-bench/actions/workflows/docker.yml)
+[![Coverage](https://github.com/badkoubeh/zeta-bench/actions/workflows/coverage.yml/badge.svg)](https://github.com/badkoubeh/zeta-bench/actions/workflows/coverage.yml)
 ![Python](https://img.shields.io/badge/python-3.10%2B-blue)
-![License](https://img.shields.io/badge/license-MIT-green)
+[![License](https://img.shields.io/badge/license-Apache%202.0-green)](LICENSE)
 
 > **The reproducible benchmark for robust control under the long tail** —
 > stress-test any controller across a physics-grounded graduated disturbance
@@ -354,4 +355,4 @@ ML engineering (reproducibility, CI/CD, seeded evaluation).
 
 ## License
 
-MIT
+[Apache License 2.0](LICENSE).
