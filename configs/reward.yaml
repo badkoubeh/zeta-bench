@@ -18,7 +18,7 @@ reward:
   scales:
     lateral_m: 25.0                # ~half the OOB cylinder radius (200 m)
     altitude_m: 60.0              # curriculum max initial altitude
-    velocity_mps: 10.0            # a few× the 2 m/s touchdown speed threshold
+    velocity_mps: 10.0            # a few× the 3 m/s touchdown speed threshold
     vertical_velocity_mps: 5.0    # nominal descent speed scale
     tilt_rad: 0.0873              # = touchdown tilt threshold (5°)
     angular_rate_radps: 0.1745    # = touchdown angular-rate threshold (~10°/s)
