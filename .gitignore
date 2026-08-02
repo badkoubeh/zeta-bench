@@ -66,6 +66,8 @@ docs/*
 !docs/usage.md
 !docs/env_config_reference.md
 !docs/reward_engineering.md
+!docs/ARCHITECTURE.md
+!docs/parameter_sources.md
 
 # Jupyter
 .ipynb_checkpoints/

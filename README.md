@@ -1,8 +1,9 @@
 # ZetaBench
 
-![CI](https://github.com/badkoubeh/zeta-bench/actions/workflows/ci.yml/badge.svg)
+[![CI](https://github.com/badkoubeh/zeta-bench/actions/workflows/docker.yml/badge.svg)](https://github.com/badkoubeh/zeta-bench/actions/workflows/docker.yml)
+[![Coverage](https://github.com/badkoubeh/zeta-bench/actions/workflows/coverage.yml/badge.svg)](https://github.com/badkoubeh/zeta-bench/actions/workflows/coverage.yml)
 ![Python](https://img.shields.io/badge/python-3.10%2B-blue)
-![License](https://img.shields.io/badge/license-MIT-green)
+[![License](https://img.shields.io/badge/license-Apache%202.0-green)](LICENSE)
 
 > **The reproducible benchmark for robust control under the long tail** —
 > stress-test any controller across a physics-grounded graduated disturbance
@@ -248,7 +249,13 @@ covering:
 - **Rotational dynamics** — Euler's equations; moment of inertia tensor; gimbal
   abstraction for thrust vectoring
 - **Reference frames** — body-to-inertial rotation via quaternion / DCM
-- **Parameter grounding** — mass, Isp, drag coefficient from RocketPy
+- **Parameter grounding** — mass, Isp, drag coefficient from published Falcon-9 /
+  Merlin-1D figures, sourced per parameter in
+  [`docs/parameter_sources.md`](docs/parameter_sources.md)
+
+Every derived term is re-checked numerically against the running `dynamics/` code in
+the same notebook, including an empirical measurement of the integrator's order of
+accuracy. The invariants are also enforced in CI (`tests/test_physics.py`).
 
 ---
 
@@ -348,4 +355,4 @@ ML engineering (reproducibility, CI/CD, seeded evaluation).
 
 ## License
 
-MIT
+[Apache License 2.0](LICENSE).

@@ -1,8 +1,9 @@
 """Hydra entrypoint: one-shot progressive training profile.
 
 Chains, per agent (SAC, PPO): Stage A (task-difficulty curriculum, nominal
-dynamics) → verification gate (success rate at full difficulty) → Stage B
-(resume under domain randomization with a disturbance-severity ramp).
+dynamics) → verification gate (success rate at the configured gate difficulty,
+``profile.gate.task_difficulty``, under nominal conditions) → Stage B (resume
+under domain randomization with a disturbance-severity ramp).
 
 CLI examples
 ------------

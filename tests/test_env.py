@@ -72,7 +72,7 @@ def test_terminal_on_crash_when_dropped_fast_onto_pad(cfg) -> None:
     # Directly set the internal state to be just above the pad with high vz
     env._state = make_state(
         position_NED=np.array([0.0, 0.0, -0.1]),  # ~10 cm above pad
-        velocity_NED=np.array([0.0, 0.0, 50.0]),  # 50 m/s downward — way above 2 m/s threshold
+        velocity_NED=np.array([0.0, 0.0, 50.0]),  # 50 m/s downward — way above 3 m/s threshold
         quat_wxyz=UPRIGHT_QUAT,
         angular_rate_body=np.zeros(3),
         fuel_mass_kg=4000.0,
@@ -110,7 +110,7 @@ def test_terminal_on_successful_soft_landing(cfg) -> None:
     # touchdown check; vz / tilt / ω are all under their success thresholds.
     env._state = make_state(
         position_NED=np.array([0.0, 0.0, 0.0]),
-        velocity_NED=np.array([0.0, 0.0, 1.0]),  # 1 m/s, under 2 m/s threshold
+        velocity_NED=np.array([0.0, 0.0, 1.0]),  # 1 m/s, under 3 m/s threshold
         quat_wxyz=UPRIGHT_QUAT,
         angular_rate_body=np.zeros(3),
         fuel_mass_kg=4000.0,
