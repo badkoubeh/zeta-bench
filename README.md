@@ -248,7 +248,13 @@ covering:
 - **Rotational dynamics** — Euler's equations; moment of inertia tensor; gimbal
   abstraction for thrust vectoring
 - **Reference frames** — body-to-inertial rotation via quaternion / DCM
-- **Parameter grounding** — mass, Isp, drag coefficient from RocketPy
+- **Parameter grounding** — mass, Isp, drag coefficient from published Falcon-9 /
+  Merlin-1D figures, sourced per parameter in
+  [`docs/parameter_sources.md`](docs/parameter_sources.md)
+
+Every derived term is re-checked numerically against the running `dynamics/` code in
+the same notebook, including an empirical measurement of the integrator's order of
+accuracy. The invariants are also enforced in CI (`tests/test_physics.py`).
 
 ---
 
