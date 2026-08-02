@@ -5,14 +5,23 @@ The profile trains each agent through two chained regimes:
 - **Stage A (naive)** — task-difficulty curriculum ramps 0→1 under nominal
   dynamics (domain randomization off).
 - **Verification gate** — the stage's candidate checkpoints are evaluated at
-  full task difficulty under nominal conditions
+  ``gate.task_difficulty`` under nominal conditions
   (:mod:`robustness.verification`); Stage B starts only from a checkpoint that
   clears the configured success-rate threshold. A failed gate triggers a
   bounded number of Stage A extension runs before the agent's chain is
   aborted (recorded in the gate report; the next agent still runs).
 - **Stage B (robust)** — resumes from the gate-selected checkpoint with the
-  task difficulty pinned at full and domain randomization ramping disturbance
-  severity 0→1 (``severity_anneal_steps``).
+  task difficulty pinned at ``stage_b.task_difficulty`` and domain
+  randomization ramping disturbance severity 0→1 (``severity_anneal_steps``).
+
+The gate deliberately scores at the *trained* envelope rather than at
+difficulty 1.0: the curriculum ceiling means a well-trained agent is ~99% at
+0.4 but degrades sharply beyond it, so a 90% bar at full difficulty would be
+effectively unreachable. ``stage_a.eval_task_difficulty`` is kept in sync with
+``gate.task_difficulty`` so model selection targets what the gate measures, and
+Stage B pins the same value so a gated checkpoint does not face the full
+initial-condition envelope and full disturbances at once. See
+``configs/profile/progressive.yaml`` for the values and the rationale.
 
 Anneal-step math: ``env.curriculum.anneal_steps`` and
 ``env.domain_randomization.severity_anneal_steps`` count **per-env** steps,

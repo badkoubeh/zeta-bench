@@ -1,10 +1,12 @@
 """Checkpoint verification gate used by the progressive training profile.
 
 After a training stage completes, the gate evaluates the stage's candidate
-checkpoints (``best_model.zip``, ``model.zip``) at full task difficulty under
-nominal conditions and selects the strongest one. Training proceeds to the
-next stage only when the selected candidate clears a configured success-rate
-threshold (see :mod:`robustness.progressive` for the sequencing).
+checkpoints (``best_model.zip``, ``model.zip``) at the configured gate
+difficulty (``profile.gate.task_difficulty``) under nominal conditions and
+selects the strongest one. Training proceeds to the next stage only when the
+selected candidate clears a configured success-rate threshold (see
+:mod:`robustness.progressive` for the sequencing and for why the gate scores
+at the trained envelope rather than at difficulty 1.0).
 
 Candidates are copied into an immutable per-attempt archive before scoring:
 a follow-up extension run re-creates SB3's ``EvalCallback`` with a fresh
