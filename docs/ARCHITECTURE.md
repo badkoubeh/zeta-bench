@@ -175,8 +175,8 @@ discipline is the mechanism that makes cross-paradigm results credible.
 | PID baseline | Classical (cascaded) | ✅ Implemented (`configs/pid_controller.yaml`) |
 | SAC agent | Off-policy RL | ✅ Trained (curriculum, γ=0.999) |
 | PPO agent | On-policy RL | ✅ Trained (curriculum, γ=0.999) |
+| MPC baseline | Optimization-based | ✅ Implemented (`configs/mpc_controller.yaml`) |
 | LQR baseline | Classical (optimal) | Planned |
-| MPC baseline | Optimization-based | Planned |
 
 | Property | SAC | PPO |
 |---|---|---|
@@ -184,6 +184,36 @@ discipline is the mechanism that makes cross-paradigm results credible.
 | Sample efficiency | High | Moderate |
 | Continuous actions | Natural fit | Requires tuning |
 | Stability | Moderate | High |
+
+**MPC baseline** (`controllers/mpc_baseline.py`). A convex receding-horizon guidance
+law on the **vertical channel only** — gimbal is commanded zero, matching the PID
+baseline's active scope so neither classical controller gets lateral guidance the
+other lacks. Every `resolve_every_n_ticks` control ticks it condenses a linearized
+`[z, vz]` model over the horizon, poses envelope-tracking + fuel + Δu as a
+bounded-variable least-squares, and solves it with `scipy.optimize.lsq_linear`
+(BVLS). The tracked reference is a deceleration envelope
+`v(h) = sqrt(v_td² + 2·margin·a_dec·h)` recomputed each solve from the *measured*
+mass, tilt, and thrust authority — that self-adjustment, not the optimiser, is what
+distinguishes it from the PID's fixed tuned flare.
+
+Two properties are load-bearing for how its results should be read:
+
+- **The model is nominal.** It is built from `cfg.env.dynamics` and sees the world
+  only through the observation, so under a disturbance cell it plans with a *wrong*
+  model. Deliberate — it is the same information PID gets, and it makes the mass
+  axis a model-mismatch test rather than a privileged-access test.
+- **It runs on raw observations, with no state estimator.** Real deployed MPC runs
+  on filtered state. Adding an estimator here would be a fair-comparison change
+  affecting every controller (or a separate reported variant), not a quiet upgrade
+  to one — see §Limitations in the README.
+
+It is *not* the lossless-convexified SOCP that operators fly (Açıkmeşe & Ploen,
+JGCD 2007); it is analogous in structure — relax a non-convex input set, solve a
+convex program per cycle, apply the first move — but plans one axis with a
+quadratic cost, not three with cone constraints. The plant's admissible thrust set
+`{0} ∪ [throttle_min, 1]` is genuinely non-convex, so the solution's first move is
+projected back onto it, and that projection is a real source of plan-vs-plant
+mismatch rather than a proven-lossless relaxation.
 
 **Controller variants.** The same architecture trained under different regimes
 (nominal vs. robust — see §11) is a *variant*, not a new controller. Variants are
@@ -508,7 +538,7 @@ No upward imports.
 | Upgrade | What changes | What stays the same |
 |---|---|---|
 | High fidelity dynamics | `HighFidelityDynamics` class + obs space extension | Everything else |
-| LQR / MPC baselines | New `controllers/` module implementing `predict` | Env, matrix, cards, heatmap |
+| LQR baseline | New `controllers/` module implementing `predict` | Env, matrix, cards, heatmap |
 | Actuator-delay sweep axis | Levels in `configs/eval.yaml` + a heatmap row | Disturbance model (already implemented) |
 | eVTOL / UAV environment | New `UAVDynamics`, new env wrapper | All eval framework, controllers |
 | CARLA simulator | Replace Gymnasium env | Agents, adversary, evaluation |

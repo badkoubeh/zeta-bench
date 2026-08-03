@@ -58,7 +58,7 @@ exercises the full stack:
 
 - Physics derived from first principles (not a tutorial copy)
 - Graduated, fixed-seed disturbance matrix — every controller faces identical conditions
-- Cross-paradigm controller comparison: PID, LQR (planned), MPC (planned), SAC, PPO
+- Cross-paradigm controller comparison: PID, MPC, SAC, PPO — LQR planned
 - Reproducible robustness heatmap: disturbance type × magnitude × success rate
 
 The architecture decisions below describe the rocket-landing reference
@@ -88,7 +88,7 @@ Continuous 3D thrust vector `[Tx, Ty, Tz]` ∈ `[-1, 1]³`
 
 ### Controllers
 All controllers implement the same interface so they can be evaluated on identical
-conditions. Current: PID baseline, SAC, PPO. Planned: LQR, MPC. Do not remove any
+conditions. Current: PID baseline, MPC baseline, SAC, PPO. Planned: LQR. Do not remove any
 existing controller; the cross-paradigm comparison is the mechanism that makes the
 robustness verdict credible.
 
