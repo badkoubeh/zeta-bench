@@ -21,7 +21,7 @@ verdict credible, not the headline.
 
 The **reference environment shipping today is 6-DOF rocket landing**, which
 exercises the entire stack end to end: first-principles physics → Gymnasium env
-→ PID / SAC / PPO controllers → disturbance-sweep evaluation. The same
+→ PID / MPC / SAC / PPO controllers → disturbance-sweep evaluation. The same
 scaffolding is intended to host other control problems (eVTOL/UAV precision
 landing, bipedal locomotion) — see [Environments](#environments).
 
@@ -115,9 +115,10 @@ baseline) are in [results/README.md](results/README.md#interpretation--honest-ca
 ```bash
 cd zeta-bench
 uv venv --python 3.12 && source .venv/bin/activate
-uv pip install -e ".[dev]"            # PID eval + tests; add [train] for torch + SB3
+uv pip install -e ".[dev]"            # classical eval + tests; add [train] for torch + SB3
 
 python experiments/evaluate_pid.py               # fly the PID baseline, write metrics
+python experiments/evaluate_mpc.py               # fly the MPC baseline, write metrics
 python experiments/evaluate_robustness.py        # the graduated disturbance matrix
 python experiments/train.py compute=mps agent=sac   # train (Apple Silicon example)
 ```
@@ -135,7 +136,7 @@ zeta-bench/
 ├── configs/                  # All hyperparams — Hydra-managed YAML
 ├── dynamics/                 # 6-DOF rigid body dynamics (first principles)
 ├── envs/                     # Gymnasium environment wrapper
-├── controllers/              # PID baseline, SAC agent, PPO agent
+├── controllers/              # PID + MPC baselines, SAC agent, PPO agent
 ├── adversary/                # Learned disturbance adversary policy
 ├── experiments/              # train.py, evaluate_robustness.py
 ├── notebooks/                # Physics derivation (EOM from scratch)
@@ -164,7 +165,7 @@ flowchart TB
         direction LR
         REF["x<sub>ref</sub><br/>target state"]:::ref
         SUM_E(("⊖")):::sum
-        CTRL["<b>Controller π<sub>θ</sub></b><br/>PID · SAC · PPO<br/>a<sub>t</sub> = [throttle, θ<sub>pitch</sub>, θ<sub>yaw</sub>] (3-dim)"]:::ctrl
+        CTRL["<b>Controller π<sub>θ</sub></b><br/>PID · MPC · SAC · PPO<br/>a<sub>t</sub> = [throttle, θ<sub>pitch</sub>, θ<sub>yaw</sub>] (3-dim)"]:::ctrl
         SUM_U(("⊕")):::sum
         PLANT["<b>Rocket model</b><br/>6-DOF rigid-body dynamics<br/>RK4 @ 200 Hz"]:::plant
         OBS["<b>Observer</b><br/>s<sub>t</sub> (14-dim) → o<sub>t</sub> (17-dim)<br/>FixedObsScaler"]:::sensor
@@ -318,10 +319,27 @@ This section documents honest constraints of the current implementation.
 - Trained in simulation only — no sim-to-real gap analysis or hardware validation
 - Single GPU training; no distributed rollout collection
 
+**Controllers**
+- No controller performs lateral (on-pad) guidance; the scored task is a soft
+  vertical touchdown, so both classical baselines regulate the vertical channel
+  only and command zero gimbal
+- The MPC baseline is a **convex, single-axis** receding-horizon guidance law with
+  a quadratic cost — analogous in structure to the SOCP descent guidance operators
+  fly (relax, solve per cycle, apply the first move) but not the same thing. It is
+  not lossless-convexified, and the plant's non-convex thrust set
+  (`{0} ∪ [throttle_min, 1]`) is handled by projecting the applied move, which
+  leaves genuine plan-vs-plant mismatch
+- No controller runs a state estimator — all of them consume the raw observation.
+  This costs the MPC most, since it re-initialises a plan from the measurement
+  every solve while the PID's integrator low-passes it. Adding filtering would be
+  a fair-comparison change across all controllers, not a one-sided upgrade
+
 **Evaluation**
 - Robustness matrix uses discrete disturbance levels; real-world disturbances
   are continuous and correlated
 - No formal stability guarantees — empirical robustness only
+- The published matrix below predates the MPC baseline; its column lands with the
+  next full matrix run
 
 **Prior art.** Existing tools are not absent — they are fragmented and
 unmaintained as a standard. ZetaBench's gap is the absence of a recognized,

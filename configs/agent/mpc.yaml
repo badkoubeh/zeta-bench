@@ -1,0 +1,9 @@
+# @package _global_
+# Model-predictive control baseline — no learnable parameters.
+# Horizon, weights, and envelope live in configs/mpc_controller.yaml. This file
+# only declares the agent identity so run_name interpolation and (future)
+# factory dispatch work.
+
+agent:
+  name: mpc
+  algorithm: MPC

@@ -1,0 +1,46 @@
+# Focused composition for end-to-end MPC evaluation.
+# Entry point: experiments/evaluate_mpc.py
+#
+# CLI examples
+# ------------
+#   python experiments/evaluate_mpc.py
+#   python experiments/evaluate_mpc.py seed=7 eval_mpc.n_episodes=20
+#   python experiments/evaluate_mpc.py mpc_controller.envelope.margin=0.4
+#   python experiments/evaluate_mpc.py eval_mpc.render=true
+#
+# Intentionally narrow: no adversary, no eval-grid (robustness), no compute
+# profile. The MPC is NumPy + scipy; this is the tight tune-and-rerun loop.
+#
+# Tune the horizon, weights, and envelope HERE, under nominal conditions. Tuning
+# them against robustness-matrix cells would be the fair-comparison violation
+# this benchmark exists to expose.
+
+defaults:
+  - env
+  - reward
+  - agent: mpc
+  - mpc_controller
+  - _self_
+
+seed: 42
+run_name: ${agent.name}_${env.dynamics.fidelity}_eval_${seed}
+results_dir: results/${run_name}
+
+eval_mpc:
+  n_episodes: 20
+  # Pin task difficulty for evaluation. The env's internal `_global_step`
+  # is zero at eval-time, which would otherwise leave the curriculum at its
+  # easiest envelope (low drop, no lateral offset, slow descent). Set
+  # to 1.0 to evaluate on the full envelope; lower values for easier tests.
+  task_difficulty: 1.0
+  # When true, write time-series PNG + 2D side-view MP4 for the best and
+  # worst episodes of the run (by total return). Default off so the
+  # tune-and-rerun loop stays fast — MP4 generation is the slow step.
+  render: false
+  render_fps: 50
+
+# Wire the pinned task difficulty into the curriculum (fixed schedule holds it).
+env:
+  curriculum:
+    schedule: fixed
+    task_difficulty: ${eval_mpc.task_difficulty}

@@ -1,0 +1,60 @@
+# @package _global_
+#
+# Model-predictive vertical-descent guidance. See controllers/mpc_baseline.py
+# for the formulation. In short: a convex receding-horizon guidance law that
+# tracks a physically-derived deceleration envelope, solved every
+# `resolve_every_n_ticks` control ticks as a box-constrained least-squares.
+#
+# The controller's internal plant model is built from `env.dynamics` — the
+# NOMINAL parameters. It never sees the per-cell wind, mass offset, or sensor
+# noise, which is exactly what makes the mass-offset axis a test of model
+# mismatch rather than a test of a privileged controller.
+#
+# Tune these against `python experiments/evaluate_mpc.py` (nominal conditions
+# only). Never tune them against robustness-matrix cells — that is the
+# fair-comparison violation this benchmark exists to expose.
+
+mpc_controller:
+  # --- Horizon -------------------------------------------------------------
+  # The optimiser discretisation is COARSER than the 50 Hz control rate so a
+  # multi-second plan costs only `horizon` decision variables. Planning window
+  # = horizon * step_ticks / env.episode.control_hz.
+  horizon: 30              # decision variables (throttle values) per solve
+  step_ticks: 5            # control ticks per MPC step => 0.1 s at 50 Hz
+                           # => 30 * 0.1 = 3.0 s planning window
+
+  # Receding-horizon replanning interval, in control ticks. Between solves the
+  # queued plan is applied open-loop. 1 = re-solve every tick (most reactive,
+  # ~5x the compute). Must not exceed `step_ticks`, or the plan runs out.
+  resolve_every_n_ticks: 5
+
+  # --- Deceleration envelope (the tracked reference) -----------------------
+  # v_env(h) = clip(sqrt(v_td^2 + 2*margin*a_dec*h), min, max), where a_dec =
+  # T_max*cos(tilt)/m - g is the CURRENT achievable deceleration given the
+  # measured mass and tilt. Recomputed every solve — this is what distinguishes
+  # the MPC from the PID's fixed linear flare (configs/pid_controller.yaml).
+  envelope:
+    touchdown_target_mps: 1.0   # aim well inside env.touchdown.velocity_threshold_mps (3.0)
+    margin: 0.30                # fraction of available deceleration the envelope assumes;
+                                # < 1 keeps braking authority in reserve for disturbances.
+                                # Lower = flatter, slower, more forgiving terminal approach.
+    min_descent_mps: 1.0        # floor near the pad — keep descending to touchdown
+    max_descent_mps: 12.0       # cap up high (within the descent-speed envelope)
+
+  # --- Cost weights --------------------------------------------------------
+  # J = w_velocity*||v - v_env||^2 + w_throttle*||u||^2 + w_throttle_rate*||du||^2
+  # w_velocity dominates: envelope tracking is the objective, the other two are
+  # regularisers (fuel economy and actuator smoothness).
+  weights:
+    velocity: 1.0            # envelope-tracking error (m/s)
+    throttle: 0.02           # fuel proxy — penalises holding high thrust
+    throttle_rate: 0.10      # smooths the commanded throttle sequence
+
+  # --- Mapping the solution onto the plant's admissible input set ----------
+  # The plant's achievable thrust set is disjoint: a command <= 0 shuts the
+  # engine off, anything > 0 is clipped up to `env.dynamics.throttle_min`
+  # (see dynamics/equations_of_motion.py::clamp_throttle). A QP cannot express
+  # that, so the solver plans over the convex hull [0, 1] and the first move is
+  # projected: below this threshold the engine is commanded off, at or above it
+  # the command is raised to the throttle floor.
+  ignition_threshold: 0.125  # half of env.dynamics.throttle_min (0.25)
