@@ -189,7 +189,12 @@ def test_plot_heatmap_infers_episode_count_and_handles_missing_nominal(tmp_path)
 # --- entrypoint smoke ------------------------------------------------------
 
 def test_evaluate_robustness_entrypoint(tmp_path) -> None:
-    """The Hydra entrypoint writes a matrix CSV + heatmap for a PID-only sweep."""
+    """The Hydra entrypoint writes a matrix CSV + heatmap for a classical-only sweep.
+
+    With the RL controllers disabled, the checkpoint-free baselines (PID and MPC)
+    still run — which is what keeps the matrix usable in CI, where no trained
+    model exists.
+    """
     from experiments.evaluate_robustness import main as evaluate_robustness_main
 
     csv_path = tmp_path / "robustness_matrix.csv"
@@ -220,6 +225,8 @@ def test_evaluate_robustness_entrypoint(tmp_path) -> None:
     assert png_path.exists()
     with csv_path.open() as f:
         parsed = list(csv.DictReader(f))
-    # 3 cells (nominal + 1 wind + 1 mass) × PID only.
+    # 3 cells (nominal + 1 wind + 1 mass) × the 2 classical baselines.
     assert {p["disturbance_type"] for p in parsed} == {"nominal", "wind", "mass"}
-    assert all(p["controller"] == "pid" for p in parsed)
+    assert {p["controller"] for p in parsed} == {"pid", "mpc"}
+    # Every controller is scored on every cell — the identical-conditions invariant.
+    assert len(parsed) == 3 * 2

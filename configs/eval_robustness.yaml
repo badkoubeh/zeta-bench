@@ -26,6 +26,7 @@ defaults:
   - agent: sac      # provides cfg.agent.gamma for reward shaping; not loaded directly
   - compute: cpu
   - pid_controller
+  - mpc_controller
   - _self_
 
 seed: 42
@@ -39,11 +40,14 @@ wandb:
   mode: ${zeta.wandb_mode:}  # WANDB_MODE if set, else online when WANDB_API_KEY exists, else offline
 
 eval_robustness:
-  # Which controllers to compare. PID needs no checkpoint; each RL controller is
-  # loaded from model_path only when enabled AND the file exists (otherwise it is
-  # skipped with a warning, so PID-only runs work out of the box).
+  # Which controllers to compare. The classical baselines (PID, MPC) need no
+  # checkpoint; each RL controller is loaded from model_path only when enabled
+  # AND the file exists (otherwise it is skipped with a warning, so
+  # classical-only runs work out of the box).
   controllers:
     pid:
+      enabled: true
+    mpc:
       enabled: true
     sac:
       enabled: true
