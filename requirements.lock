@@ -306,7 +306,9 @@ ruff==0.15.14
     # via
     #   zeta-bench (pyproject.toml)
 scipy==1.18.0
-    # via optuna
+    # via
+    #   zeta-bench (pyproject.toml)
+    #   optuna
 sentry-sdk==2.60.0
     # via
     #   wandb
