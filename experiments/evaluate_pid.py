@@ -29,14 +29,13 @@ from pathlib import Path
 
 import hydra
 import numpy as np
-from numpy.typing import NDArray
 from omegaconf import DictConfig
 
 from controllers.pid_baseline import PIDController
 from envs.rocket_landing_env import RocketLandingEnv
 from utils.logging_config import get_logger
 from utils.normalisation import FixedObsScaler
-from utils.render import Trajectory, animate_side_view, plot_timeseries
+from utils.render import TrajectoryBuffer, animate_side_view, plot_timeseries
 
 logger = get_logger(__name__)
 
@@ -51,56 +50,13 @@ _EPISODE_COLUMNS: tuple[str, ...] = (
 )
 
 
-class _TrajectoryBuffer:
-    """Accumulate per-step physical-unit state for one episode's trajectory.
-
-    The episode loop calls :meth:`append` after each ``env.step``. Once
-    the episode terminates, :meth:`finalize` returns a :class:`Trajectory`
-    that the renderer can consume.
-    """
-
-    def __init__(self, dt: float, scaler: FixedObsScaler) -> None:
-        self._dt = float(dt)
-        self._scaler = scaler
-        self._obs_raw: list[NDArray[np.float64]] = []
-        self._action: list[NDArray[np.float64]] = []
-        self._reward: list[float] = []
-
-    def append(
-        self,
-        obs_scaled: NDArray[np.float64],
-        action: NDArray[np.float64],
-        reward: float,
-    ) -> None:
-        self._obs_raw.append(self._scaler.unscale(obs_scaled).copy())
-        self._action.append(np.asarray(action, dtype=np.float64).copy())
-        self._reward.append(float(reward))
-
-    def finalize(self, meta: dict) -> Trajectory:
-        raw = np.stack(self._obs_raw, axis=0)
-        action_arr = np.stack(self._action, axis=0)
-        reward_arr = np.array(self._reward, dtype=np.float64)
-        T = raw.shape[0]
-        return Trajectory(
-            t=np.arange(T, dtype=np.float64) * self._dt,
-            pos_NED=raw[:, 0:3],
-            vel_NED=raw[:, 3:6],
-            euler=raw[:, 6:9],
-            omega_body=raw[:, 9:12],
-            action=action_arr,
-            reward=reward_arr,
-            fuel_kg=raw[:, 15],
-            meta=meta,
-        )
-
-
 def _run_episode(
     env: RocketLandingEnv,
     controller: PIDController,
     scaler: FixedObsScaler,
     seed: int,
     initial_fuel_kg: float,
-    buffer: _TrajectoryBuffer | None = None,
+    buffer: TrajectoryBuffer | None = None,
 ) -> dict[str, float | str | int]:
     """Run one episode to termination/truncation; return per-episode metrics.
 
@@ -184,7 +140,7 @@ def _summarise(rows: list[dict[str, float | str | int]]) -> dict[str, float | in
 def _render_best_and_worst(
     cfg: DictConfig,
     rows: list[dict[str, float | str | int]],
-    buffers: list[_TrajectoryBuffer | None],
+    buffers: list[TrajectoryBuffer | None],
     results_dir: Path,
 ) -> None:
     """Render time-series PNG + side-view MP4 for the best and worst episodes."""
@@ -258,10 +214,10 @@ def main(cfg: DictConfig) -> None:
 
     rng = np.random.default_rng(int(cfg.seed))
     rows: list[dict[str, float | str | int]] = []
-    buffers: list[_TrajectoryBuffer | None] = []
+    buffers: list[TrajectoryBuffer | None] = []
     for ep_idx in range(int(cfg.eval_pid.n_episodes)):
         ep_seed = int(rng.integers(0, 2**31 - 1))
-        buffer = _TrajectoryBuffer(control_dt, scaler) if render_enabled else None
+        buffer = TrajectoryBuffer(control_dt, scaler) if render_enabled else None
         row = _run_episode(env, controller, scaler, ep_seed, initial_fuel_kg, buffer=buffer)
         row["episode_idx"] = ep_idx
         rows.append(row)
