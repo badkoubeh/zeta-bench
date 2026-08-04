@@ -87,6 +87,57 @@ class Trajectory:
     meta: dict[str, Any] = field(default_factory=dict)
 
 
+class TrajectoryBuffer:
+    """Accumulate per-step physical-unit state for one episode's trajectory.
+
+    An episode loop calls :meth:`append` after each ``env.step``. Once the
+    episode terminates, :meth:`finalize` returns a :class:`Trajectory` the
+    renderers below can consume. Shared by every single-controller evaluation
+    entrypoint so the recorded column layout cannot drift between them.
+
+    The buffer takes the scaler rather than raw state so callers can hand it
+    exactly the observation they already have; unscaling to physical units
+    happens here.
+    """
+
+    def __init__(self, dt: float, scaler: Any) -> None:
+        """Construct from the control-tick duration and a ``FixedObsScaler``."""
+        self._dt = float(dt)
+        self._scaler = scaler
+        self._obs_raw: list[NDArray[np.float64]] = []
+        self._action: list[NDArray[np.float64]] = []
+        self._reward: list[float] = []
+
+    def append(
+        self,
+        obs_scaled: NDArray[np.float64],
+        action: NDArray[np.float64],
+        reward: float,
+    ) -> None:
+        """Record one control tick."""
+        self._obs_raw.append(self._scaler.unscale(obs_scaled).copy())
+        self._action.append(np.asarray(action, dtype=np.float64).copy())
+        self._reward.append(float(reward))
+
+    def finalize(self, meta: dict[str, Any]) -> Trajectory:
+        """Assemble the recorded ticks into a :class:`Trajectory`."""
+        raw = np.stack(self._obs_raw, axis=0)
+        action_arr = np.stack(self._action, axis=0)
+        reward_arr = np.array(self._reward, dtype=np.float64)
+        n_steps = raw.shape[0]
+        return Trajectory(
+            t=np.arange(n_steps, dtype=np.float64) * self._dt,
+            pos_NED=raw[:, 0:3],
+            vel_NED=raw[:, 3:6],
+            euler=raw[:, 6:9],
+            omega_body=raw[:, 9:12],
+            action=action_arr,
+            reward=reward_arr,
+            fuel_kg=raw[:, 15],
+            meta=meta,
+        )
+
+
 def plot_timeseries(traj: Trajectory, out_path: Path) -> None:
     """Write a 4×2 multi-panel time-series figure to ``out_path`` as PNG.
 

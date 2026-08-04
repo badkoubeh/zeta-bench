@@ -1,24 +1,31 @@
-"""Hydra entrypoint: end-to-end PID evaluation.
+"""Hydra entrypoint: end-to-end MPC evaluation.
 
-Runs the cascaded PID baseline through :class:`envs.RocketLandingEnv` for
-``cfg.eval_pid.n_episodes`` episodes under nominal conditions (no wind,
-mass offset, or sensor noise — those land with the Phase 3 robustness
-sweep). Writes per-episode rows and an aggregate summary to disk and
-prints a human-readable summary to stdout.
+Runs the model-predictive descent-guidance baseline through
+:class:`envs.RocketLandingEnv` for ``cfg.eval_mpc.n_episodes`` episodes under
+nominal conditions (no wind, mass offset, or sensor noise — those belong to the
+graduated matrix in ``experiments/evaluate_robustness.py``). Writes per-episode
+rows and an aggregate summary to disk and prints a human-readable summary.
+
+This is the loop for tuning ``configs/mpc_controller.yaml``. Tune here, under
+nominal conditions; never against robustness-matrix cells.
+
+Alongside the landing metrics it reports **solver cost** — mean and p99
+milliseconds per solve, and solves per episode. The full disturbance matrix is
+millions of control ticks, so the affordability of a horizon/cadence setting
+should be a measured number before a long run is launched, not a hope.
 
 CLI examples
 ------------
-    python experiments/evaluate_pid.py
-    python experiments/evaluate_pid.py seed=7 eval_pid.n_episodes=20
-    python experiments/evaluate_pid.py eval_pid.task_difficulty=0.5
+    python experiments/evaluate_mpc.py
+    python experiments/evaluate_mpc.py seed=7 eval_mpc.n_episodes=20
+    python experiments/evaluate_mpc.py mpc_controller.envelope.margin=0.4
+    python experiments/evaluate_mpc.py eval_mpc.render=true
 
 Outputs
 -------
 - ``results/{run_name}/episodes.csv`` — one row per episode.
-- ``results/{run_name}/summary.json`` — aggregates across episodes.
-
-The PID controller's gains live in ``configs/pid_controller.yaml``;
-re-run after editing to evaluate new gains.
+- ``results/{run_name}/summary.json`` — aggregates across episodes, including
+  the solver-cost fields.
 """
 
 from __future__ import annotations
@@ -31,8 +38,9 @@ import hydra
 import numpy as np
 from omegaconf import DictConfig
 
-from controllers.pid_baseline import PIDController
+from controllers.mpc_baseline import MPCController
 from envs.rocket_landing_env import RocketLandingEnv
+from robustness.evaluation import summarise
 from utils.logging_config import get_logger
 from utils.normalisation import FixedObsScaler
 from utils.render import TrajectoryBuffer, animate_side_view, plot_timeseries
@@ -47,12 +55,15 @@ _EPISODE_COLUMNS: tuple[str, ...] = (
     "length",
     "touchdown_speed_mps",
     "fuel_used_kg",
+    "n_solves",
+    "solve_ms_mean",
+    "solve_ms_p99",
 )
 
 
 def _run_episode(
     env: RocketLandingEnv,
-    controller: PIDController,
+    controller: MPCController,
     scaler: FixedObsScaler,
     seed: int,
     initial_fuel_kg: float,
@@ -60,8 +71,10 @@ def _run_episode(
 ) -> dict[str, float | str | int]:
     """Run one episode to termination/truncation; return per-episode metrics.
 
-    If ``buffer`` is provided, per-step state is appended to it (used for
-    post-hoc rendering).
+    Mirrors :func:`robustness.evaluation.run_episode` (the matrix path) and adds
+    two things it deliberately has no business carrying: optional trajectory
+    recording for the renderer, and the controller's per-episode solve
+    telemetry.
     """
     controller.reset()
     obs, _ = env.reset(seed=seed)
@@ -82,59 +95,19 @@ def _run_episode(
             break
 
     raw = scaler.unscale(obs)
-    velocity_NED = raw[3:6]
-    touchdown_speed_mps = float(np.linalg.norm(velocity_NED))
+    touchdown_speed_mps = float(np.linalg.norm(raw[3:6]))
     final_fuel_kg = float(raw[15])
-    fuel_used_kg = float(initial_fuel_kg - final_fuel_kg)
 
-    return {
+    row: dict[str, float | str | int] = {
         "seed": int(seed),
         "outcome": last_reason,
         "return": float(ep_return),
         "length": int(length),
         "touchdown_speed_mps": touchdown_speed_mps,
-        "fuel_used_kg": fuel_used_kg,
+        "fuel_used_kg": float(initial_fuel_kg - final_fuel_kg),
     }
-
-
-def _summarise(rows: list[dict[str, float | str | int]]) -> dict[str, float | int]:
-    """Aggregate per-episode rows into top-line stats."""
-    n = len(rows)
-    if n == 0:
-        return {
-            "n_episodes": 0,
-            "success_rate": 0.0,
-            "n_success": 0,
-            "n_crash": 0,
-            "n_out_of_bounds": 0,
-            "n_timeout": 0,
-            "return_mean": 0.0,
-            "return_std": 0.0,
-            "touchdown_speed_mean_mps": 0.0,
-            "fuel_used_mean_kg": 0.0,
-            "episode_length_mean": 0.0,
-        }
-
-    outcomes = [str(r["outcome"]) for r in rows]
-    returns = np.array([float(r["return"]) for r in rows], dtype=np.float64)
-    speeds = np.array([float(r["touchdown_speed_mps"]) for r in rows], dtype=np.float64)
-    fuels = np.array([float(r["fuel_used_kg"]) for r in rows], dtype=np.float64)
-    lengths = np.array([int(r["length"]) for r in rows], dtype=np.float64)
-
-    successes = outcomes.count("success")
-    return {
-        "n_episodes": n,
-        "success_rate": successes / n,
-        "n_success": successes,
-        "n_crash": outcomes.count("crash"),
-        "n_out_of_bounds": outcomes.count("out_of_bounds"),
-        "n_timeout": outcomes.count("timeout"),
-        "return_mean": float(returns.mean()),
-        "return_std": float(returns.std(ddof=0)),
-        "touchdown_speed_mean_mps": float(speeds.mean()),
-        "fuel_used_mean_kg": float(fuels.mean()),
-        "episode_length_mean": float(lengths.mean()),
-    }
+    row.update(controller.solve_stats())
+    return row
 
 
 def _render_best_and_worst(
@@ -148,22 +121,22 @@ def _render_best_and_worst(
         return
 
     returns = [float(r["return"]) for r in rows]
-    best_idx = int(np.argmax(returns))
-    worst_idx = int(np.argmin(returns))
-    selected = sorted({best_idx, worst_idx})
+    selected = sorted({int(np.argmax(returns)), int(np.argmin(returns))})
 
     plots_dir = results_dir / "plots"
     video_dir = results_dir / "video"
     plots_dir.mkdir(parents=True, exist_ok=True)
     video_dir.mkdir(parents=True, exist_ok=True)
 
-    fps = int(cfg.eval_pid.get("render_fps", int(cfg.env.episode.control_hz)))
-    target_descent_mps = float(cfg.pid_controller.altitude.target_descent_mps)
+    fps = int(cfg.eval_mpc.get("render_fps", int(cfg.env.episode.control_hz)))
     scene_meta = {
         "pad_radius_m": float(cfg.env.touchdown.get("pad_radius_m", 30.0)),
         "oob_cylinder_radius_m": float(cfg.env.oob.cylinder_radius_m),
         "oob_ceiling_m": float(cfg.env.oob.ceiling_m),
-        "target_descent_mps": target_descent_mps,
+        # The MPC has no constant descent target — its reference is the
+        # altitude-dependent envelope. Draw the terminal target so the velocity
+        # panel still carries a reference line.
+        "target_descent_mps": float(cfg.mpc_controller.envelope.touchdown_target_mps),
     }
 
     for idx in selected:
@@ -190,32 +163,57 @@ def _render_best_and_worst(
         animate_side_view(traj, mp4_path, fps=fps)
 
 
-@hydra.main(config_path="../configs", config_name="eval_pid", version_base=None)
+def _solver_cost(rows: list[dict[str, float | str | int]]) -> dict[str, float]:
+    """Aggregate the per-episode solve telemetry into run-level solver cost."""
+    if not rows:
+        return {"solves_per_episode_mean": 0.0, "solve_ms_mean": 0.0, "solve_ms_p99_max": 0.0}
+    solves = np.array([float(r["n_solves"]) for r in rows], dtype=np.float64)
+    means = np.array([float(r["solve_ms_mean"]) for r in rows], dtype=np.float64)
+    p99s = np.array([float(r["solve_ms_p99"]) for r in rows], dtype=np.float64)
+    return {
+        "solves_per_episode_mean": float(solves.mean()),
+        # Weight each episode's mean by its solve count so the run-level mean is
+        # the true per-solve cost, not a mean of means over uneven episodes.
+        "solve_ms_mean": float(np.average(means, weights=solves)) if solves.sum() else 0.0,
+        "solve_ms_p99_max": float(p99s.max()),
+    }
+
+
+@hydra.main(config_path="../configs", config_name="eval_mpc", version_base=None)
 def main(cfg: DictConfig) -> None:
-    """Build env + PID, run ``n_episodes``, dump CSV + JSON + stdout summary."""
+    """Build env + MPC, run ``n_episodes``, dump CSV + JSON + stdout summary."""
     results_dir = Path(cfg.results_dir)
     results_dir.mkdir(parents=True, exist_ok=True)
 
     logger.info("run_name=%s results_dir=%s", cfg.run_name, results_dir)
     logger.info(
         "n_episodes=%d seed=%d task_difficulty=%.3f",
-        int(cfg.eval_pid.n_episodes),
+        int(cfg.eval_mpc.n_episodes),
         int(cfg.seed),
-        float(cfg.eval_pid.task_difficulty),
+        float(cfg.eval_mpc.task_difficulty),
+    )
+    mpc = cfg.mpc_controller
+    logger.info(
+        "mpc: horizon=%d × %.3f s = %.2f s window, replan every %d ticks, margin=%.2f",
+        int(mpc.horizon),
+        int(mpc.step_ticks) / float(cfg.env.episode.control_hz),
+        int(mpc.horizon) * int(mpc.step_ticks) / float(cfg.env.episode.control_hz),
+        int(mpc.resolve_every_n_ticks),
+        float(mpc.envelope.margin),
     )
 
     env = RocketLandingEnv(cfg)
-    controller = PIDController(cfg)
+    controller = MPCController(cfg)
     scaler = FixedObsScaler(cfg)
     initial_fuel_kg = float(cfg.env.dynamics.initial_fuel_kg)
     control_dt = 1.0 / float(cfg.env.episode.control_hz)
 
-    render_enabled = bool(cfg.eval_pid.get("render", False))
+    render_enabled = bool(cfg.eval_mpc.get("render", False))
 
     rng = np.random.default_rng(int(cfg.seed))
     rows: list[dict[str, float | str | int]] = []
     buffers: list[TrajectoryBuffer | None] = []
-    for ep_idx in range(int(cfg.eval_pid.n_episodes)):
+    for ep_idx in range(int(cfg.eval_mpc.n_episodes)):
         ep_seed = int(rng.integers(0, 2**31 - 1))
         buffer = TrajectoryBuffer(control_dt, scaler) if render_enabled else None
         row = _run_episode(env, controller, scaler, ep_seed, initial_fuel_kg, buffer=buffer)
@@ -223,15 +221,18 @@ def main(cfg: DictConfig) -> None:
         rows.append(row)
         buffers.append(buffer)
         logger.info(
-            "ep %02d/%02d seed=%d outcome=%-13s return=%9.2f len=%4d v_td=%5.2f m/s fuel=%6.1f kg",
+            "ep %02d/%02d seed=%d outcome=%-13s return=%9.2f len=%4d v_td=%5.2f m/s "
+            "fuel=%6.1f kg solves=%4d @ %.2f ms",
             ep_idx + 1,
-            int(cfg.eval_pid.n_episodes),
+            int(cfg.eval_mpc.n_episodes),
             ep_seed,
             row["outcome"],
             row["return"],
             row["length"],
             row["touchdown_speed_mps"],
             row["fuel_used_kg"],
+            int(row["n_solves"]),
+            row["solve_ms_mean"],
         )
 
     if render_enabled:
@@ -246,7 +247,8 @@ def main(cfg: DictConfig) -> None:
         for row in rows:
             writer.writerow({k: row[k] for k in _EPISODE_COLUMNS})
 
-    summary = _summarise(rows)
+    summary = summarise(rows)
+    summary.update(_solver_cost(rows))
     with summary_path.open("w") as f:
         json.dump(summary, f, indent=2)
 
@@ -260,6 +262,12 @@ def main(cfg: DictConfig) -> None:
         summary["return_mean"],
         summary["return_std"],
         summary["touchdown_speed_mean_mps"],
+    )
+    logger.info(
+        "solver: %.0f solves/episode  %.2f ms mean  %.2f ms p99",
+        summary["solves_per_episode_mean"],
+        summary["solve_ms_mean"],
+        summary["solve_ms_p99_max"],
     )
 
 

@@ -1,7 +1,9 @@
 # Naive-vs-robust robustness matrix for the progressive-profile checkpoints.
 # Entry point: experiments/evaluate_robustness.py --config-name=eval_robustness_profile
 #
-# Compares, on the identical fixed-seed disturbance grid: the PID baseline,
+# Compares, on the identical fixed-seed disturbance grid: the PID and MPC
+# baselines (the classical calibration anchors — a robust-RL break-point is
+# uninterpretable without them),
 # each agent's gate-selected Stage A checkpoint (*_naive — curriculum only,
 # never trained on disturbances) and its Stage B checkpoint (*_robust —
 # fine-tuned under domain randomization). Point the *_naive paths at the

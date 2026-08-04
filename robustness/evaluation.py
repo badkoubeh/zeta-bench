@@ -36,9 +36,13 @@ from utils.normalisation import FixedObsScaler
 
 logger = get_logger(__name__)
 
-# Controller kinds the matrix knows how to build/load. ``pid`` is constructed
-# from config; RL kinds are loaded from an SB3 checkpoint by the entrypoint.
-CONTROLLER_KINDS: tuple[str, ...] = ("pid", "sac", "ppo")
+# Controller kinds the matrix knows how to build/load. ``pid`` and ``mpc`` are
+# constructed from config (no learned parameters); RL kinds are loaded from an
+# SB3 checkpoint by the entrypoint.
+CONTROLLER_KINDS: tuple[str, ...] = ("pid", "mpc", "sac", "ppo")
+
+# Kinds built directly from the composed config rather than a checkpoint.
+CONFIG_BUILT_KINDS: frozenset[str] = frozenset({"pid", "mpc"})
 
 
 @dataclass(frozen=True)

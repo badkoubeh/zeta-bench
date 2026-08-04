@@ -1,6 +1,6 @@
 """Hydra entrypoint: run the graduated robustness disturbance matrix.
 
-Evaluates every configured controller (PID, SAC, PPO) across the same
+Evaluates every configured controller (PID, MPC, SAC, PPO) across the same
 fixed-seed disturbance grid so results are reproducible and cross-comparable,
 then writes the matrix CSV and the signature per-controller heatmap. The grid
 orchestration + rollout live in :mod:`robustness.evaluation`; this file only
@@ -13,7 +13,7 @@ CLI
     # all controllers (RL checkpoints must exist under results/)
     python experiments/evaluate_robustness.py
 
-    # PID only (no trained models needed)
+    # classical baselines only (PID + MPC — no trained models needed)
     python experiments/evaluate_robustness.py \\
         eval_robustness.controllers.sac.enabled=false \\
         eval_robustness.controllers.ppo.enabled=false
@@ -40,8 +40,10 @@ from pathlib import Path
 import hydra
 from omegaconf import DictConfig, OmegaConf
 
+from controllers.mpc_baseline import MPCController
 from controllers.pid_baseline import PIDController
 from robustness.evaluation import (
+    CONFIG_BUILT_KINDS,
     MATRIX_COLUMNS,
     resolve_controller_specs,
     run_matrix,
@@ -63,6 +65,12 @@ _RL_AGENTS: dict[str, str] = {
     "ppo": "controllers.ppo_agent.PPOAgent",
 }
 
+# Checkpoint-free controllers, constructed straight from the composed config.
+_CONFIG_CONTROLLERS: dict[str, type] = {
+    "pid": PIDController,
+    "mpc": MPCController,
+}
+
 
 def _load_rl_agent(kind: str, model_path: str) -> object:
     """Import the SB3 agent wrapper for ``kind`` and load its checkpoint."""
@@ -76,19 +84,19 @@ def _build_controllers(cfg: DictConfig) -> dict[str, object]:
 
     Entries are resolved by :func:`resolve_controller_specs`, so arbitrarily
     named variants of one algorithm (e.g. ``sac_naive`` / ``sac_robust`` with
-    ``type: sac``) can share a matrix run. PID kinds are built from config (no
-    checkpoint); each RL kind is loaded only when enabled *and* its
-    ``model_path`` exists — an enabled-but-missing model is warned about and
-    skipped so the matrix still runs with what is available (e.g. PID-only in
-    CI). Never tune per controller: every controller here is scored on the
-    same cells and seeds.
+    ``type: sac``) can share a matrix run. The classical kinds (PID, MPC) are
+    built from config and need no checkpoint; each RL kind is loaded only when
+    enabled *and* its ``model_path`` exists — an enabled-but-missing model is
+    warned about and skipped so the matrix still runs with what is available
+    (e.g. classical-only in CI). Never tune per controller: every controller
+    here is scored on the same cells and seeds.
     """
     controllers: dict[str, object] = {}
     for spec in resolve_controller_specs(cfg.eval_robustness.controllers):
         if not spec.enabled:
             continue
-        if spec.kind == "pid":
-            controllers[spec.name] = PIDController(cfg)
+        if spec.kind in CONFIG_BUILT_KINDS:
+            controllers[spec.name] = _CONFIG_CONTROLLERS[spec.kind](cfg)
         elif spec.model_path and Path(spec.model_path).exists():
             logger.info(
                 "loading %s controller (%s) from %s", spec.name, spec.kind, spec.model_path

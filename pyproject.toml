@@ -18,6 +18,11 @@ classifiers = [
 ]
 dependencies = [
     "numpy>=2.0",
+    # scipy.optimize.lsq_linear solves the MPC baseline's box-constrained
+    # least-squares. Previously present only transitively (via optuna, in the
+    # `train` extra); the MPC controller is a base-install feature, so it is
+    # declared here.
+    "scipy>=1.11",
     "gymnasium>=1.0",
     "hydra-core>=1.3",
     "omegaconf>=2.3",

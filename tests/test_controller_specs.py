@@ -110,9 +110,9 @@ class TestBuildControllers:
         )
         controllers = evaluate_robustness._build_controllers(cfg)
 
-        # pid built from config; ppo_robust loaded via its type; sac_robust
-        # (enabled but missing checkpoint) warned and skipped.
-        assert set(controllers) == {"pid", "ppo_robust"}
+        # pid + mpc built from config; ppo_robust loaded via its type;
+        # sac_robust (enabled but missing checkpoint) warned and skipped.
+        assert set(controllers) == {"pid", "mpc", "ppo_robust"}
         assert controllers["ppo_robust"] == "fake-ppo"
         assert loaded == [("ppo", str(existing))]
 
@@ -122,10 +122,12 @@ class TestBuildControllers:
 
         assert not specs["sac"].enabled and not specs["ppo"].enabled
         enabled = [s for s in specs.values() if s.enabled]
+        # PID and MPC are the classical calibration anchors, inherited from
+        # eval_robustness; a robust-RL break-point is uninterpretable without them.
         assert {s.name for s in enabled} == {
-            "pid", "sac_naive", "sac_robust", "ppo_naive", "ppo_robust",
+            "pid", "mpc", "sac_naive", "sac_robust", "ppo_naive", "ppo_robust",
         }
-        assert {s.kind for s in enabled if s.name != "pid"} == {"sac", "ppo"}
+        assert {s.kind for s in enabled if s.name not in ("pid", "mpc")} == {"sac", "ppo"}
         # The matrix still pins initial conditions (fairness invariant).
         assert str(cfg.env.curriculum.schedule) == "fixed"
         assert float(cfg.env.curriculum.task_difficulty) == 1.0

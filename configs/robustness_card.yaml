@@ -33,6 +33,8 @@ robustness_card:
   cards:
     pid:
       tuned: pid
+    mpc:
+      tuned: mpc
     sac:
       nominal-trained: sac
       robust: sac_robust
