@@ -442,11 +442,12 @@ zeta-bench/
 │   ├── env.yaml               # dynamics, episode, touchdown, curriculum, DR, obs scaler
 │   ├── reward.yaml
 │   ├── eval.yaml              # the graduated disturbance grid
-│   ├── eval_{pid,rl,robustness,robustness_profile}.yaml
+│   ├── eval_{pid,mpc,rl,robustness,robustness_profile}.yaml
 │   ├── robustness_card.yaml
-│   ├── pid_controller.yaml
+│   ├── pid_controller.yaml    # cascade gains + flare schedule
+│   ├── mpc_controller.yaml    # horizon/cadence, cost weights, descent envelope
 │   ├── adversary.yaml
-│   ├── agent/                 # sac, ppo, pid, sac_tuned
+│   ├── agent/                 # sac, ppo, pid, mpc, sac_tuned
 │   ├── compute/               # cpu, mps, small_gpu, large_gpu, multi_gpu, kaggle_gpu
 │   ├── budget/                # full, laptop  (HPO sweep budgets)
 │   └── profile/               # progressive, smoke  (staged-training budgets)
@@ -461,7 +462,8 @@ zeta-bench/
 │   ├── domain_randomization.py# training-only disturbance-sampling wrapper
 │   └── reward.py              # potential, shaping, terminal
 ├── controllers/               # All controllers — same predict/save/load interface
-│   ├── pid_baseline.py
+│   ├── pid_baseline.py        # cascaded classical baseline
+│   ├── mpc_baseline.py        # convex receding-horizon descent guidance (scipy BVLS)
 │   ├── sac_agent.py
 │   └── ppo_agent.py
 ├── robustness/                # The product: disturbances + evaluation + verdicts
@@ -476,10 +478,11 @@ zeta-bench/
 ├── utils/                     # Leaf helpers — importable anywhere; never imports upward
 │   ├── normalisation.py       # FixedObsScaler
 │   ├── reproducibility.py     # seeded RNG factory
-│   ├── logging_config.py, wandb_setup.py, sb3_callbacks.py, render.py
+│   ├── render.py              # Trajectory + TrajectoryBuffer, timeseries PNG, side-view MP4
+│   ├── logging_config.py, wandb_setup.py, sb3_callbacks.py
 ├── experiments/               # Entrypoints only — orchestration, no logic
 │   ├── train.py, train_profile.py
-│   ├── evaluate_pid.py, evaluate_rl.py, evaluate_robustness.py
+│   ├── evaluate_pid.py, evaluate_mpc.py, evaluate_rl.py, evaluate_robustness.py
 │   ├── robustness_card.py, export_best_params.py
 │   └── sagemaker_launch.py
 ├── scripts/check_diagram_sync.py  # pre-commit guard on the README control diagram
@@ -539,6 +542,7 @@ No upward imports.
 |---|---|---|
 | High fidelity dynamics | `HighFidelityDynamics` class + obs space extension | Everything else |
 | LQR baseline | New `controllers/` module implementing `predict` | Env, matrix, cards, heatmap |
+| MPC lateral channel (rung T1) | 3-axis model in `mpc_baseline.py`; a thrust-magnitude constraint couples the axes, so the cost stops being a plain bounded-variable least-squares and wants a real cone solver | Interface, matrix, cards, heatmap — but T1 must extend PID's lateral cascade too, or the comparison stops being fair |
 | Actuator-delay sweep axis | Levels in `configs/eval.yaml` + a heatmap row | Disturbance model (already implemented) |
 | eVTOL / UAV environment | New `UAVDynamics`, new env wrapper | All eval framework, controllers |
 | CARLA simulator | Replace Gymnasium env | Agents, adversary, evaluation |
