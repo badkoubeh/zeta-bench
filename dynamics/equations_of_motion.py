@@ -189,10 +189,13 @@ def clamp_throttle(
     throttle (typically 40-60% of nominal). Above 100% they're saturated
     by hardware limits. With no fuel, thrust is zero regardless of command.
 
-    The "deep-throttle" range below ``throttle_min`` is mapped to zero
-    here (engine is off), not to ``throttle_min`` (which would be the
-    "min sustainable thrust" semantics). Either choice is defensible —
-    we model OFF/ON, not idle.
+    Any positive command below ``throttle_min`` is clamped *up* to
+    ``throttle_min`` ("min sustainable thrust" semantics), not mapped to
+    zero: ``clip(throttle_cmd, throttle_min, throttle_max)`` for every
+    ``throttle_cmd > 0``. The engine is off (thrust zero) only for a
+    non-positive command or an empty tank. So a command of e.g. 0.10
+    produces thrust at the ``throttle_min`` floor rather than shutting
+    the engine down.
     """
     if fuel_mass_kg <= 0.0:
         return 0.0
