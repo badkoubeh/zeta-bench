@@ -28,6 +28,7 @@ import json
 from collections import defaultdict
 from pathlib import Path
 
+from marginkit import grid_break_point
 import matplotlib
 
 matplotlib.use("Agg")  # headless: file output only, no display backend
@@ -131,12 +132,23 @@ def break_point(
     fails first). ``None`` means the gate held everywhere tested — a
     right-censored result: the true break-point lies beyond ``max_tested``,
     which is reported so "held to X" is never read as "unbreakable".
+
+    Thin wrapper over :func:`marginkit.grid_break_point`, which owns the rule.
+    An empty curve is handled here and returns ``(None, None)``, because
+    marginkit raises on empty input. Signature and return type are unchanged.
+    Unlike the original rule, a non-finite severity or rate (NaN, inf) now
+    raises ``ValueError`` instead of flowing into the comparison; curves built
+    by :func:`degradation_curve` from the matrix CSV never contain one.
     """
     if not curve:
         return None, None
-    max_tested = max(abs(sev) for sev, _ in curve)
-    failing = sorted(abs(sev) for sev, success in curve if success < gate)
-    return (failing[0] if failing else None), max_tested
+    result = grid_break_point(
+        [sev for sev, _ in curve],
+        [success for _, success in curve],
+        criterion=gate,
+        signed=True,
+    )
+    return result.value, result.max_tested
 
 
 def build_card_summary(

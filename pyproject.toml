@@ -31,6 +31,11 @@ dependencies = [
     "matplotlib>=3.8",
     "imageio>=2.34",
     "imageio-ffmpeg>=0.5",
+    # Break-point rule for robustness cards. Pinned to a git tag because
+    # marginkit is not on PyPI yet; switch to the compatible range
+    # `marginkit>=0.1.0a1,<0.2` once it is (marginkit decision 0003). The
+    # exact version is pinned in requirements.lock.
+    "marginkit @ git+https://github.com/badkoubeh/marginkit@v0.1.0a1",
 ]
 
 [project.optional-dependencies]
