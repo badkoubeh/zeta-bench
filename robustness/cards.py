@@ -28,7 +28,7 @@ import json
 from collections import defaultdict
 from pathlib import Path
 
-from marginkit import grid_break_point
+from robustmargin import grid_break_point
 import matplotlib
 
 matplotlib.use("Agg")  # headless: file output only, no display backend
@@ -133,9 +133,9 @@ def break_point(
     right-censored result: the true break-point lies beyond ``max_tested``,
     which is reported so "held to X" is never read as "unbreakable".
 
-    Thin wrapper over :func:`marginkit.grid_break_point`, which owns the rule.
+    Thin wrapper over :func:`robustmargin.grid_break_point`, which owns the rule.
     An empty curve is handled here and returns ``(None, None)``, because
-    marginkit raises on empty input. Signature and return type are unchanged.
+    robustmargin raises on empty input. Signature and return type are unchanged.
     Unlike the original rule, a non-finite severity or rate (NaN, inf) now
     raises ``ValueError`` instead of flowing into the comparison; curves built
     by :func:`degradation_curve` from the matrix CSV never contain one.

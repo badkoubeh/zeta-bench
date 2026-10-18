@@ -99,8 +99,6 @@ librt==0.11.0
     # via mypy
 mako==1.3.12
     # via alembic
-marginkit @ git+https://github.com/badkoubeh/marginkit@6da49aba6cdb83162e2f8749c3e5c97fed9b0404
-    # via zeta-bench (pyproject.toml)
 markdown-it-py==4.2.0
     # via rich
 markupsafe==3.0.3
@@ -133,11 +131,11 @@ numpy==2.4.6
     #   formulaic
     #   gymnasium
     #   imageio
-    #   marginkit
     #   matplotlib
     #   optuna
     #   pandas
     #   patsy
+    #   robustmargin
     #   scipy
     #   stable-baselines3
     #   statsmodels
@@ -268,14 +266,16 @@ rich==15.0.0
     #   rich-argparse
 rich-argparse==1.8.0
     # via cmd2
+robustmargin==0.1.1
+    # via zeta-bench (pyproject.toml)
 ruff==0.15.14
     # via zeta-bench (pyproject.toml)
 scipy==1.18.0
     # via
     #   zeta-bench (pyproject.toml)
     #   formulaic
-    #   marginkit
     #   optuna
+    #   robustmargin
     #   statsmodels
 sentry-sdk==2.60.0
     # via wandb
@@ -294,7 +294,7 @@ sqlalchemy==2.0.51
 stable-baselines3==2.8.0
     # via zeta-bench (pyproject.toml)
 statsmodels==0.15.0
-    # via marginkit
+    # via robustmargin
 stevedore==5.8.0
     # via cliff
 sympy==1.14.0
