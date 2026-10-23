@@ -34,7 +34,7 @@ dependencies = [
     # Break-point rule for robustness cards. A compatible range: while
     # robustmargin is in 0.x a minor release may break, so the upper bound
     # is the next minor. The exact version is pinned in requirements.lock.
-    "robustmargin>=0.1,<0.2",
+    "robustmargin>=0.2,<0.3",
 ]
 
 [project.optional-dependencies]
